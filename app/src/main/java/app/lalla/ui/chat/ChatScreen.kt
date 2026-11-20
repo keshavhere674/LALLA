@@ -4,30 +4,13 @@ import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -39,32 +22,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.MicOff
-import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.StopCircle
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -75,10 +35,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import app.lalla.domain.model.Conversation
 import app.lalla.domain.model.Message
 import app.lalla.domain.model.MessageRole
 import app.lalla.ui.navigation.LallaDestinations
@@ -87,19 +49,31 @@ import app.lalla.ui.theme.DarkBackground
 import app.lalla.ui.theme.DarkSurfaceVariant
 import app.lalla.ui.theme.UserBubble
 import app.lalla.ui.theme.VividViolet
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
     navController: NavController,
-    viewModel: ChatViewModel = hiltViewModel()
+    viewModel: ChatViewModel = hiltViewModel(),
+    pendingVoiceCommand: String? = null
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val allConversations by viewModel.allConversations.collectAsState()
     val listState = rememberLazyListState()
     var inputText by remember { mutableStateOf("") }
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
+
+    // Handle voice command delivered from background service
+    LaunchedEffect(pendingVoiceCommand) {
+        if (!pendingVoiceCommand.isNullOrBlank()) {
+            inputText = pendingVoiceCommand
+            viewModel.sendMessage(pendingVoiceCommand)
+        }
+    }
 
     // Runtime permission launcher
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -108,7 +82,7 @@ fun ChatScreen(
         if (granted) viewModel.startVoiceInput()
     }
 
-    // Auto-scroll on new message or streaming update
+    // Auto-scroll on new messages / streaming
     LaunchedEffect(uiState.messages.size, uiState.streamingResponse) {
         val totalCount = uiState.messages.size + if (uiState.isLoading) 1 else 0
         if (totalCount > 0) {
@@ -116,444 +90,572 @@ fun ChatScreen(
         }
     }
 
-    Scaffold(
-        containerColor = DarkBackground,
-        topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        // Animated LALLA avatar orb
-                        LallaAvatarOrb(voiceState = uiState.voiceState, size = 36)
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                text = "LALLA",
-                                style = MaterialTheme.typography.titleMedium.copy(
-                                    fontWeight = FontWeight.ExtraBold,
-                                    letterSpacing = 2.sp,
-                                    color = VividViolet
-                                )
-                            )
-                            Text(
-                                text = when (uiState.voiceState) {
-                                    VoiceState.LISTENING -> "🎙️ Listening..."
-                                    VoiceState.THINKING  -> "💭 Thinking..."
-                                    VoiceState.SPEAKING  -> "🔊 Speaking..."
-                                    VoiceState.IDLE      -> "Your Personal AI Companion"
-                                },
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    color = when (uiState.voiceState) {
-                                        VoiceState.LISTENING -> CyanAccent
-                                        VoiceState.THINKING  -> VividViolet
-                                        VoiceState.SPEAKING  -> CyanAccent
-                                        VoiceState.IDLE      -> MaterialTheme.colorScheme.onSurfaceVariant
-                                    }
-                                )
-                            )
-                        }
-                    }
+    // Fill input from voice recognition partial text
+    LaunchedEffect(uiState.voiceInputText) {
+        if (uiState.voiceInputText.isNotBlank()) {
+            inputText = uiState.voiceInputText
+        }
+    }
+
+    // ── Navigation Drawer (Chat History) ─────────────────────────────────────
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ConversationHistoryDrawer(
+                conversations = allConversations,
+                currentConversationId = uiState.currentConversationId,
+                onNewChat = {
+                    viewModel.startNewConversation()
+                    scope.launch { drawerState.close() }
                 },
-                actions = {
-                    // TTS toggle
-                    IconButton(onClick = { viewModel.toggleTts() }) {
-                        Icon(
-                            imageVector = if (uiState.isTtsEnabled) Icons.AutoMirrored.Filled.VolumeUp
-                                          else Icons.AutoMirrored.Filled.VolumeOff,
-                            contentDescription = "Toggle TTS",
-                            tint = if (uiState.isTtsEnabled) CyanAccent
-                                   else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    IconButton(onClick = { navController.navigate(LallaDestinations.MEMORY) }) {
-                        Icon(
-                            imageVector = Icons.Default.Psychology,
-                            contentDescription = "Memories",
-                            tint = VividViolet
-                        )
-                    }
-                    IconButton(onClick = { navController.navigate(LallaDestinations.SETTINGS) }) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Settings",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = DarkBackground
-                )
-            )
-        },
-        bottomBar = {
-            BottomInputBar(
-                inputText = inputText,
-                onInputChange = { inputText = it },
-                voiceState = uiState.voiceState,
-                isLoading = uiState.isLoading,
-                voiceInputText = uiState.voiceInputText,
-                error = uiState.error,
-                onSend = {
-                    if (inputText.isNotBlank() && !uiState.isLoading) {
-                        val toSend = inputText
-                        inputText = ""
-                        viewModel.sendMessage(toSend)
-                    }
-                },
-                onMicClick = {
-                    when (uiState.voiceState) {
-                        VoiceState.LISTENING -> viewModel.stopVoiceInput()
-                        VoiceState.SPEAKING  -> viewModel.stopSpeaking()
-                        else -> permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                    }
-                },
-                onDismissError = { viewModel.clearError() }
+                onSelectConversation = { conv ->
+                    viewModel.switchConversation(conv.id)
+                    scope.launch { drawerState.close() }
+                }
             )
         }
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(DarkBackground, Color(0xFF0F0F20))
-                    )
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text(
+                                "LALLA",
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 20.sp,
+                                color = Color.White
+                            )
+                            Text(
+                                "Your Personal AI Companion",
+                                fontSize = 11.sp,
+                                color = CyanAccent.copy(alpha = 0.8f)
+                            )
+                        }
+                    },
+                    navigationIcon = {
+                        // Hamburger menu → chat history drawer
+                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                            Icon(Icons.Default.Menu, "Chat History", tint = Color.White)
+                        }
+                    },
+                    actions = {
+                        // TTS toggle
+                        IconButton(onClick = { viewModel.toggleTts() }) {
+                            Icon(
+                                imageVector = if (uiState.isTtsEnabled)
+                                    Icons.AutoMirrored.Filled.VolumeUp
+                                else
+                                    Icons.AutoMirrored.Filled.VolumeOff,
+                                contentDescription = "Toggle TTS",
+                                tint = if (uiState.isTtsEnabled) CyanAccent else Color.Gray
+                            )
+                        }
+                        // Tasks button
+                        IconButton(onClick = { navController.navigate(LallaDestinations.TASKS) }) {
+                            Icon(Icons.Default.Task, "Tasks", tint = Color.White)
+                        }
+                        // Memory button
+                        IconButton(onClick = { navController.navigate(LallaDestinations.MEMORY) }) {
+                            Icon(Icons.Default.Psychology, "Memory", tint = Color.White)
+                        }
+                        // Settings
+                        IconButton(onClick = { navController.navigate(LallaDestinations.SETTINGS) }) {
+                            Icon(Icons.Default.Settings, "Settings", tint = Color.White)
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBackground)
                 )
-        ) {
-            if (uiState.messages.isEmpty() && !uiState.isLoading) {
-                EmptyStateGreeting(voiceState = uiState.voiceState)
-            } else {
+            },
+            containerColor = DarkBackground
+        ) { innerPadding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .imePadding()
+            ) {
+                // Error banner
+                AnimatedVisibility(visible = uiState.error != null) {
+                    uiState.error?.let { errorMsg ->
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp)
+                                .clickable { viewModel.clearError() }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Warning,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    errorMsg,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    fontSize = 13.sp,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Voice state banner
+                AnimatedVisibility(
+                    visible = uiState.voiceState != VoiceState.IDLE,
+                    enter = fadeIn() + slideInVertically(),
+                    exit = fadeOut()
+                ) {
+                    VoiceStateBanner(uiState.voiceState, uiState.voiceInputText)
+                }
+
+                // Messages
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(uiState.messages, key = { it.id }) { message ->
-                        AnimatedVisibility(
-                            visible = true,
-                            enter = fadeIn() + slideInVertically { it / 2 }
-                        ) {
-                            ChatBubble(message = message)
+                    if (uiState.messages.isEmpty() && !uiState.isLoading) {
+                        item {
+                            WelcomeMessage()
                         }
                     }
 
-                    if (uiState.isLoading) {
-                        item(key = "streaming_bubble") {
+                    items(uiState.messages) { message ->
+                        MessageBubble(message = message)
+                    }
+
+                    // Streaming bubble
+                    if (uiState.isLoading && uiState.streamingResponse.isNotBlank()) {
+                        item {
                             StreamingBubble(text = uiState.streamingResponse)
                         }
+                    } else if (uiState.isLoading) {
+                        item {
+                            ThinkingBubble()
+                        }
                     }
+                }
+
+                // Input bar
+                InputBar(
+                    inputText = inputText,
+                    isLoading = uiState.isLoading,
+                    voiceState = uiState.voiceState,
+                    isTtsEnabled = uiState.isTtsEnabled,
+                    onInputChange = { inputText = it },
+                    onSend = {
+                        if (inputText.isNotBlank()) {
+                            viewModel.sendMessage(inputText)
+                            inputText = ""
+                        }
+                    },
+                    onMicClick = {
+                        when (uiState.voiceState) {
+                            VoiceState.LISTENING -> viewModel.stopVoiceInput()
+                            VoiceState.SPEAKING -> viewModel.stopSpeaking()
+                            else -> permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    }
+                )
+            }
+        }
+    }
+}
+
+// ── Conversation History Drawer ───────────────────────────────────────────────
+
+@Composable
+private fun ConversationHistoryDrawer(
+    conversations: List<Conversation>,
+    currentConversationId: Long,
+    onNewChat: () -> Unit,
+    onSelectConversation: (Conversation) -> Unit
+) {
+    ModalDrawerSheet(
+        drawerContainerColor = Color(0xFF0D1117),
+        modifier = Modifier.fillMaxHeight()
+    ) {
+        // Header
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.linearGradient(
+                        listOf(VividViolet.copy(alpha = 0.6f), DarkBackground),
+                        start = Offset(0f, 0f),
+                        end = Offset(300f, 200f)
+                    )
+                )
+                .padding(20.dp)
+        ) {
+            Column {
+                Text(
+                    "LALLA",
+                    color = Color.White,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 22.sp
+                )
+                Text(
+                    "Chat History",
+                    color = CyanAccent.copy(alpha = 0.8f),
+                    fontSize = 13.sp
+                )
+            }
+        }
+
+        // New Chat button
+        NavigationDrawerItem(
+            icon = { Icon(Icons.Default.Add, null, tint = CyanAccent) },
+            label = {
+                Text(
+                    "New Chat",
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold
+                )
+            },
+            selected = false,
+            onClick = onNewChat,
+            colors = NavigationDrawerItemDefaults.colors(
+                unselectedContainerColor = Color.Transparent
+            ),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+        )
+
+        HorizontalDivider(color = Color.White.copy(alpha = 0.1f), modifier = Modifier.padding(horizontal = 16.dp))
+
+        Spacer(Modifier.height(4.dp))
+
+        if (conversations.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "No conversations yet",
+                    color = Color.White.copy(alpha = 0.4f),
+                    fontSize = 13.sp
+                )
+            }
+        } else {
+            LazyColumn(modifier = Modifier.weight(1f)) {
+                items(conversations, key = { it.id }) { conv ->
+                    val isSelected = conv.id == currentConversationId
+                    NavigationDrawerItem(
+                        icon = {
+                            Icon(
+                                Icons.Default.ChatBubble,
+                                null,
+                                tint = if (isSelected) VividViolet else Color.White.copy(alpha = 0.5f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        label = {
+                            Column {
+                                Text(
+                                    conv.title,
+                                    color = if (isSelected) Color.White else Color.White.copy(alpha = 0.75f),
+                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                    fontSize = 14.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault())
+                                        .format(Date(conv.createdAt)),
+                                    color = Color.White.copy(alpha = 0.4f),
+                                    fontSize = 11.sp
+                                )
+                            }
+                        },
+                        selected = isSelected,
+                        onClick = { onSelectConversation(conv) },
+                        colors = NavigationDrawerItemDefaults.colors(
+                            selectedContainerColor = VividViolet.copy(alpha = 0.15f),
+                            unselectedContainerColor = Color.Transparent
+                        ),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                    )
                 }
             }
         }
     }
 }
 
-// ─── Animated LALLA Avatar Orb ───────────────────────────────────────────────
+// ── Voice State Banner ────────────────────────────────────────────────────────
+
 @Composable
-fun LallaAvatarOrb(voiceState: VoiceState, size: Int = 48) {
-    val infiniteTransition = rememberInfiniteTransition(label = "orb")
-    val scale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = when (voiceState) {
-            VoiceState.LISTENING -> 1.25f
-            VoiceState.SPEAKING  -> 1.15f
-            VoiceState.THINKING  -> 1.08f
-            VoiceState.IDLE      -> 1.0f
-        },
-        animationSpec = infiniteRepeatable(
-            animation = tween(
-                durationMillis = when (voiceState) {
-                    VoiceState.LISTENING -> 600
-                    VoiceState.SPEAKING  -> 800
-                    VoiceState.THINKING  -> 1200
-                    VoiceState.IDLE      -> 2000
-                },
-                easing = FastOutSlowInEasing
-            ),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "orbScale"
+private fun VoiceStateBanner(voiceState: VoiceState, voiceInputText: String) {
+    val pulse by rememberInfiniteTransition(label = "pulse").animateFloat(
+        initialValue = 0.85f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(700, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "pulseVal"
     )
 
-    val orbColor = when (voiceState) {
-        VoiceState.LISTENING -> CyanAccent
-        VoiceState.SPEAKING  -> CyanAccent.copy(alpha = 0.85f)
-        VoiceState.THINKING  -> VividViolet
-        VoiceState.IDLE      -> VividViolet
+    val (bg, label) = when (voiceState) {
+        VoiceState.LISTENING -> CyanAccent.copy(alpha = 0.15f) to "🎤 Listening..."
+        VoiceState.THINKING  -> VividViolet.copy(alpha = 0.15f) to "🤔 Thinking..."
+        VoiceState.SPEAKING  -> Color(0xFF25D366).copy(alpha = 0.12f) to "🔊 Speaking..."
+        VoiceState.IDLE      -> Color.Transparent to ""
     }
 
     Box(
         modifier = Modifier
-            .size(size.dp)
-            .scale(scale)
-            .clip(CircleShape)
-            .background(
-                Brush.radialGradient(
-                    colors = listOf(orbColor, orbColor.copy(alpha = 0.4f))
-                )
-            ),
-        contentAlignment = Alignment.Center
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(bg)
+            .padding(10.dp)
     ) {
-        Text(
-            text = "L",
-            style = MaterialTheme.typography.titleSmall.copy(
-                fontWeight = FontWeight.ExtraBold,
-                color = Color.White,
-                fontSize = (size * 0.45f).sp
-            )
-        )
-    }
-}
-
-// ─── Empty State ─────────────────────────────────────────────────────────────
-@Composable
-fun EmptyStateGreeting(voiceState: VoiceState) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(40.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        LallaAvatarOrb(voiceState = voiceState, size = 88)
-        Spacer(modifier = Modifier.height(24.dp))
-        Text(
-            text = "Namaste! Main LALLA hoon.",
-            style = MaterialTheme.typography.titleLarge.copy(
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            ),
-            textAlign = TextAlign.Center
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-        Text(
-            text = "Aap mujhse Hindi, English ya Hinglish mein baat kar sakte hain.\nKuch bhi poochhein — main sab yaad rakhti hoon! 🧠",
-            style = MaterialTheme.typography.bodyMedium.copy(
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                lineHeight = 22.sp
-            ),
-            textAlign = TextAlign.Center
-        )
-        Spacer(modifier = Modifier.height(24.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            HintChip("🎙️ Voice baat karein")
-            HintChip("🧠 Memories dekhein")
-        }
-    }
-}
-
-@Composable
-fun HintChip(label: String) {
-    Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = DarkSurfaceVariant,
-        tonalElevation = 2.dp
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-        )
-    }
-}
-
-// ─── Chat Bubble ─────────────────────────────────────────────────────────────
-@Composable
-fun ChatBubble(message: Message) {
-    val isUser = message.role == MessageRole.USER
-    val alignment = if (isUser) Alignment.End else Alignment.Start
-    val bubbleColor = if (isUser) UserBubble else DarkSurfaceVariant
-    val textColor = Color.White
-    val bubbleShape = if (isUser) {
-        RoundedCornerShape(topStart = 18.dp, topEnd = 4.dp, bottomStart = 18.dp, bottomEnd = 18.dp)
-    } else {
-        RoundedCornerShape(topStart = 4.dp, topEnd = 18.dp, bottomStart = 18.dp, bottomEnd = 18.dp)
-    }
-
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = alignment
-    ) {
-        if (!isUser) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.radialGradient(listOf(VividViolet, VividViolet.copy(alpha = 0.5f)))
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("L", style = MaterialTheme.typography.labelSmall.copy(
-                        color = Color.White, fontWeight = FontWeight.Bold, fontSize = 10.sp
-                    ))
-                }
-                Spacer(Modifier.width(5.dp))
-                Text("LALLA", style = MaterialTheme.typography.labelSmall.copy(
-                    color = VividViolet.copy(alpha = 0.8f), fontWeight = FontWeight.SemiBold
-                ))
-            }
-        }
-        Card(
-            shape = bubbleShape,
-            colors = CardDefaults.cardColors(containerColor = bubbleColor),
-            modifier = Modifier.widthIn(max = 310.dp)
-        ) {
+        Column {
             Text(
-                text = message.content,
-                style = MaterialTheme.typography.bodyMedium.copy(
-                    lineHeight = 22.sp,
-                    color = textColor
-                ),
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                label,
+                color = Color.White,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.scale(pulse)
             )
-        }
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            text = formatTime(message.timestamp),
-            style = MaterialTheme.typography.labelSmall.copy(
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                fontSize = 10.sp
-            ),
-            modifier = Modifier.padding(horizontal = 6.dp)
-        )
-    }
-}
-
-// ─── Streaming Bubble ────────────────────────────────────────────────────────
-@Composable
-fun StreamingBubble(text: String) {
-    val infiniteTransition = rememberInfiniteTransition(label = "dots")
-    val alpha by infiniteTransition.animateFloat(
-        initialValue = 0.3f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(600, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "dotsAlpha"
-    )
-
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.Start
-    ) {
-        Card(
-            shape = RoundedCornerShape(topStart = 4.dp, topEnd = 18.dp, bottomStart = 18.dp, bottomEnd = 18.dp),
-            colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant),
-            modifier = Modifier.widthIn(max = 310.dp)
-        ) {
-            Column(modifier = Modifier.padding(14.dp)) {
-                if (text.isNotBlank()) {
-                    Text(
-                        text = text,
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            lineHeight = 22.sp, color = Color.White
-                        )
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(14.dp),
-                        strokeWidth = 2.dp,
-                        color = VividViolet.copy(alpha = alpha)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (text.isBlank()) "LALLA soch rahi hai..." else "typing...",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            color = VividViolet.copy(alpha = alpha)
-                        )
-                    )
-                }
+            if (voiceInputText.isNotBlank()) {
+                Text(
+                    voiceInputText,
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 12.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }
 }
 
-// ─── Bottom Input Bar ────────────────────────────────────────────────────────
+// ── Welcome Message ───────────────────────────────────────────────────────────
+
 @Composable
-fun BottomInputBar(
-    inputText: String,
-    onInputChange: (String) -> Unit,
-    voiceState: VoiceState,
-    isLoading: Boolean,
-    voiceInputText: String,
-    error: String?,
-    onSend: () -> Unit,
-    onMicClick: () -> Unit,
-    onDismissError: () -> Unit
-) {
-    Column(
+private fun WelcomeMessage() {
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .imePadding()
-            .background(DarkBackground)
-            .padding(horizontal = 10.dp, vertical = 8.dp)
+            .padding(24.dp),
+        contentAlignment = Alignment.Center
     ) {
-        // Voice input preview
-        AnimatedVisibility(visible = voiceState == VoiceState.LISTENING && voiceInputText.isNotBlank()) {
-            Surface(
-                color = CyanAccent.copy(alpha = 0.1f),
-                shape = RoundedCornerShape(10.dp),
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 6.dp)
+                    .size(80.dp)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(VividViolet.copy(alpha = 0.4f), Color.Transparent)
+                        )
+                    ),
+                contentAlignment = Alignment.Center
             ) {
+                Icon(
+                    Icons.Default.AutoAwesome,
+                    contentDescription = null,
+                    tint = VividViolet,
+                    modifier = Modifier.size(40.dp)
+                )
+            }
+            Spacer(Modifier.height(16.dp))
+            Text(
+                "Namaste! Main LALLA hoon 👋",
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                textAlign = TextAlign.Center
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Kuch bhi poochein ya bolein.\nBackground mein bhi sun raha hoon — bas bolein \"LALLA\" aur apna kaam batayein!",
+                color = Color.White.copy(alpha = 0.6f),
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                lineHeight = 20.sp
+            )
+            Spacer(Modifier.height(16.dp))
+            // Quick suggestions
+            listOf(
+                "🕐 Aaj kya date hai?",
+                "⏰ Alarm laga do 7 baje",
+                "💬 Maa ko WhatsApp bhejo",
+                "📋 Meri tasks dikhao"
+            ).forEach { suggestion ->
                 Text(
-                    text = "🎙️ $voiceInputText",
-                    style = MaterialTheme.typography.bodySmall.copy(color = CyanAccent),
-                    modifier = Modifier.padding(10.dp)
+                    suggestion,
+                    color = CyanAccent.copy(alpha = 0.8f),
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(vertical = 2.dp)
                 )
             }
         }
+    }
+}
 
-        // Error banner
-        AnimatedVisibility(visible = error != null, enter = fadeIn(), exit = fadeOut()) {
-            Surface(
-                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f),
-                shape = RoundedCornerShape(10.dp),
+// ── Message Bubble ────────────────────────────────────────────────────────────
+
+@Composable
+private fun MessageBubble(message: Message) {
+    val isUser = message.role == MessageRole.USER
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+    ) {
+        if (!isUser) {
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 6.dp)
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(VividViolet, CyanAccent),
+                            start = Offset(0f, 0f),
+                            end = Offset(32f, 32f)
+                        )
+                    ),
+                contentAlignment = Alignment.Center
             ) {
-                Row(
-                    modifier = Modifier.padding(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = error ?: "",
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        ),
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(onClick = onDismissError, modifier = Modifier.size(24.dp)) {
-                        Text("✕", color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 12.sp)
-                    }
-                }
+                Text("L", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
             }
+            Spacer(Modifier.width(8.dp))
         }
 
+        Column(
+            modifier = Modifier.widthIn(max = 300.dp),
+            horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
+        ) {
+            Surface(
+                shape = RoundedCornerShape(
+                    topStart = if (isUser) 18.dp else 4.dp,
+                    topEnd = if (isUser) 4.dp else 18.dp,
+                    bottomStart = 18.dp,
+                    bottomEnd = 18.dp
+                ),
+                color = if (isUser) UserBubble else DarkSurfaceVariant
+            ) {
+                Text(
+                    text = message.content,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp
+                )
+            }
+            Text(
+                formatTime(message.timestamp),
+                fontSize = 10.sp,
+                color = Color.White.copy(alpha = 0.35f),
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+            )
+        }
+    }
+}
+
+// ── Streaming / Thinking bubbles ──────────────────────────────────────────────
+
+@Composable
+private fun StreamingBubble(text: String) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(CircleShape)
+                .background(Brush.linearGradient(listOf(VividViolet, CyanAccent))),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("L", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+        }
+        Spacer(Modifier.width(8.dp))
+        Surface(
+            shape = RoundedCornerShape(topStart = 4.dp, topEnd = 18.dp, bottomStart = 18.dp, bottomEnd = 18.dp),
+            color = DarkSurfaceVariant,
+            modifier = Modifier.widthIn(max = 300.dp)
+        ) {
+            Text(
+                text = text,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                color = Color.White.copy(alpha = 0.85f),
+                fontSize = 14.sp,
+                lineHeight = 20.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun ThinkingBubble() {
+    val inf = rememberInfiniteTransition(label = "dots")
+    val dot by inf.animateFloat(
+        initialValue = 0f, targetValue = 3f,
+        animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Restart),
+        label = "dotVal"
+    )
+    val dotsStr = ".".repeat((dot.toInt() % 3) + 1) + "  ".substring(0, 2 - (dot.toInt() % 3))
+
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(CircleShape)
+                .background(Brush.linearGradient(listOf(VividViolet, CyanAccent))),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("L", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+        }
+        Spacer(Modifier.width(8.dp))
+        Surface(
+            shape = RoundedCornerShape(topStart = 4.dp, topEnd = 18.dp, bottomStart = 18.dp, bottomEnd = 18.dp),
+            color = DarkSurfaceVariant
+        ) {
+            Text(
+                "Soch raha hoon$dotsStr",
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                color = CyanAccent.copy(alpha = 0.8f),
+                fontSize = 14.sp
+            )
+        }
+    }
+}
+
+// ── Input Bar ─────────────────────────────────────────────────────────────────
+
+@Composable
+private fun InputBar(
+    inputText: String,
+    isLoading: Boolean,
+    voiceState: VoiceState,
+    isTtsEnabled: Boolean,
+    onInputChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onMicClick: () -> Unit
+) {
+    Surface(color = DarkBackground) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.Bottom
         ) {
-            // Mic / Stop button
+            // Mic button
             val micIcon = when (voiceState) {
                 VoiceState.LISTENING -> Icons.Default.MicOff
                 VoiceState.SPEAKING  -> Icons.Default.StopCircle
                 else                 -> Icons.Default.Mic
             }
             val micTint = when (voiceState) {
-                VoiceState.LISTENING -> CyanAccent
-                VoiceState.SPEAKING  -> CyanAccent
+                VoiceState.LISTENING, VoiceState.SPEAKING -> CyanAccent
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
             }
             val micScale by rememberInfiniteTransition(label = "mic").animateFloat(

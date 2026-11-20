@@ -7,7 +7,9 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.lalla.data.speech.AndroidTextToSpeech
+import app.lalla.domain.model.Conversation
 import app.lalla.domain.model.Message
+import app.lalla.domain.repository.ConversationRepository
 import app.lalla.domain.usecase.chat.LoadConversationUseCase
 import app.lalla.domain.usecase.chat.SendMessageResult
 import app.lalla.domain.usecase.chat.SendMessageUseCase
@@ -17,8 +19,10 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -43,12 +47,18 @@ class ChatViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val loadConversationUseCase: LoadConversationUseCase,
     private val sendMessageUseCase: SendMessageUseCase,
+    private val conversationRepository: ConversationRepository,
     private val speechRecognizer: SpeechRecognizer,
     private val tts: AndroidTextToSpeech
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
+
+    /** All conversations for the sidebar drawer */
+    val allConversations: StateFlow<List<Conversation>> = conversationRepository
+        .getAllConversations()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private var streamingJob: Job? = null
     private var voiceJob: Job? = null
@@ -82,13 +92,40 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    // ── Conversation management ───────────────────────────────────────────────
+
+    fun startNewConversation() {
+        viewModelScope.launch {
+            val title = "Chat ${System.currentTimeMillis() / 1000}"
+            val newId = conversationRepository.createConversation(title)
+            _uiState.update { it.copy(currentConversationId = newId, messages = emptyList()) }
+            observeConversation(newId)
+        }
+    }
+
+    fun switchConversation(id: Long) {
+        if (id == _uiState.value.currentConversationId) return
+        tts.stop()
+        streamingJob?.cancel()
+        _uiState.update {
+            it.copy(
+                currentConversationId = id,
+                messages = emptyList(),
+                streamingResponse = "",
+                isLoading = false,
+                voiceState = VoiceState.IDLE
+            )
+        }
+        observeConversation(id)
+    }
+
+    // ── Messaging ─────────────────────────────────────────────────────────────
+
     fun sendMessage(text: String) {
         val clean = text.trim()
         if (clean.isBlank() || _uiState.value.isLoading) return
 
-        // Stop any ongoing TTS before sending
         tts.stop()
-
         streamingJob?.cancel()
         _uiState.update {
             it.copy(
@@ -108,9 +145,7 @@ class ChatViewModel @Inject constructor(
                 when (result) {
                     is SendMessageResult.Token -> {
                         streamBuilder.append(result.text)
-                        _uiState.update {
-                            it.copy(streamingResponse = streamBuilder.toString())
-                        }
+                        _uiState.update { it.copy(streamingResponse = streamBuilder.toString()) }
                     }
                     is SendMessageResult.Complete -> {
                         val cleanedText = result.cleanedText
@@ -122,7 +157,6 @@ class ChatViewModel @Inject constructor(
                                     VoiceState.SPEAKING else VoiceState.IDLE
                             )
                         }
-                        // Auto-speak the response if TTS is enabled
                         if (_uiState.value.isTtsEnabled && cleanedText.isNotBlank()) {
                             tts.speak(cleanedText)
                         }
@@ -142,52 +176,30 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    // ── Voice ─────────────────────────────────────────────────────────────────
+
     fun startVoiceInput() {
         if (_uiState.value.isLoading) return
-        // Check permission first
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED) {
-            _uiState.update {
-                it.copy(error = "Microphone permission required. Grant it in Settings.")
-            }
+            _uiState.update { it.copy(error = "Microphone permission required. Grant it in Settings.") }
             return
         }
 
         tts.stop()
         voiceJob?.cancel()
-        _uiState.update {
-            it.copy(
-                voiceState = VoiceState.LISTENING,
-                voiceInputText = "",
-                error = null
-            )
-        }
+        _uiState.update { it.copy(voiceState = VoiceState.LISTENING, voiceInputText = "", error = null) }
 
         voiceJob = viewModelScope.launch {
             speechRecognizer.startListening().collect { result ->
                 when (result) {
-                    is SttResult.Partial -> {
-                        _uiState.update { it.copy(voiceInputText = result.text) }
-                    }
+                    is SttResult.Partial -> _uiState.update { it.copy(voiceInputText = result.text) }
                     is SttResult.Final -> {
-                        _uiState.update {
-                            it.copy(
-                                voiceState = VoiceState.IDLE,
-                                voiceInputText = result.text
-                            )
-                        }
-                        if (result.text.isNotBlank()) {
-                            sendMessage(result.text)
-                        }
+                        _uiState.update { it.copy(voiceState = VoiceState.IDLE, voiceInputText = result.text) }
+                        if (result.text.isNotBlank()) sendMessage(result.text)
                     }
                     is SttResult.Error -> {
-                        _uiState.update {
-                            it.copy(
-                                voiceState = VoiceState.IDLE,
-                                error = result.message,
-                                voiceInputText = ""
-                            )
-                        }
+                        _uiState.update { it.copy(voiceState = VoiceState.IDLE, error = result.message, voiceInputText = "") }
                     }
                 }
             }
@@ -197,9 +209,7 @@ class ChatViewModel @Inject constructor(
     fun stopVoiceInput() {
         speechRecognizer.stopListening()
         voiceJob?.cancel()
-        _uiState.update {
-            it.copy(voiceState = VoiceState.IDLE, voiceInputText = "")
-        }
+        _uiState.update { it.copy(voiceState = VoiceState.IDLE, voiceInputText = "") }
     }
 
     fun stopSpeaking() {

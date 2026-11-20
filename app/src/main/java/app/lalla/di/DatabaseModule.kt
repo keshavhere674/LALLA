@@ -6,6 +6,7 @@ import app.lalla.data.local.db.LallaDatabase
 import app.lalla.data.local.db.dao.ConversationDao
 import app.lalla.data.local.db.dao.MemoryDao
 import app.lalla.data.local.db.dao.MessageDao
+import app.lalla.data.local.db.dao.TaskDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -26,21 +27,20 @@ object DatabaseModule {
             context,
             LallaDatabase::class.java,
             "lalla_database.db"
-        ).build()
+        )
+            .addMigrations(LallaDatabase.MIGRATION_1_2)
+            .build()
     }
 
     @Provides
-    fun provideMessageDao(database: LallaDatabase): MessageDao {
-        return database.messageDao()
-    }
+    fun provideMessageDao(database: LallaDatabase): MessageDao = database.messageDao()
 
     @Provides
-    fun provideConversationDao(database: LallaDatabase): ConversationDao {
-        return database.conversationDao()
-    }
+    fun provideConversationDao(database: LallaDatabase): ConversationDao = database.conversationDao()
 
     @Provides
-    fun provideMemoryDao(database: LallaDatabase): MemoryDao {
-        return database.memoryDao()
-    }
+    fun provideMemoryDao(database: LallaDatabase): MemoryDao = database.memoryDao()
+
+    @Provides
+    fun provideTaskDao(database: LallaDatabase): TaskDao = database.taskDao()
 }
