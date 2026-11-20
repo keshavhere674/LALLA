@@ -3,6 +3,7 @@ package app.lalla.domain.usecase.chat
 import app.lalla.domain.model.Message
 import app.lalla.domain.repository.ConversationRepository
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 
 class LoadConversationUseCase @Inject constructor(
@@ -13,11 +14,8 @@ class LoadConversationUseCase @Inject constructor(
     }
 
     suspend fun getOrCreateDefaultConversation(): Long {
-        val existing = conversationRepository.getConversationById(1L)
-        return if (existing != null) {
-            existing.id
-        } else {
-            conversationRepository.createConversation("LALLA Companion")
-        }
+        val existingList = conversationRepository.getAllConversations().first()
+        val first = existingList.firstOrNull()
+        return first?.id ?: conversationRepository.createConversation("LALLA Companion")
     }
 }

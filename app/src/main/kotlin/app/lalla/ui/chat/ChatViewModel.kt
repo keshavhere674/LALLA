@@ -20,7 +20,7 @@ data class ChatUiState(
     val streamingResponse: String = "",
     val isLoading: Boolean = false,
     val error: String? = null,
-    val currentConversationId: Long = 1L
+    val currentConversationId: Long = 0L
 )
 
 @HiltViewModel
@@ -67,7 +67,13 @@ class ChatViewModel @Inject constructor(
 
         streamingJob = viewModelScope.launch {
             val streamBuilder = StringBuilder()
-            val convId = _uiState.value.currentConversationId
+            val convId = if (_uiState.value.currentConversationId > 0L) {
+                _uiState.value.currentConversationId
+            } else {
+                val newId = loadConversationUseCase.getOrCreateDefaultConversation()
+                _uiState.update { it.copy(currentConversationId = newId) }
+                newId
+            }
 
             sendMessageUseCase(convId, clean).collect { result ->
                 when (result) {

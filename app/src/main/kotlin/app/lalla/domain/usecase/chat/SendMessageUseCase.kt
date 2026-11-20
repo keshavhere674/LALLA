@@ -32,10 +32,11 @@ class SendMessageUseCase @Inject constructor(
             role = MessageRole.USER,
             content = userText.trim()
         )
-        conversationRepository.saveMessage(userMessage)
+        val savedUserMsgId = conversationRepository.saveMessage(userMessage)
 
-        // 2. Fetch conversation history & memories
+        // 2. Fetch conversation history & memories (excluding the message just saved)
         val history = conversationRepository.getRecentMessages(conversationId, limit = 20)
+            .filter { it.id != savedUserMsgId }
         val memories = memoryRepository.getAllMemoriesSnapshot()
 
         // 3. Construct system prompt and AI prompt
@@ -43,7 +44,7 @@ class SendMessageUseCase @Inject constructor(
         val prompt = AiPrompt(
             systemInstruction = systemPrompt,
             injectedMemories = memories,
-            history = history.filter { it.id != userMessage.id },
+            history = history,
             userMessage = userText.trim()
         )
 
