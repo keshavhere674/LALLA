@@ -6,6 +6,9 @@ import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.lalla.data.ai.RoutingAiEngine
+import app.lalla.data.ai.local.ModelInfo
+import app.lalla.data.ai.local.ModelManager
+import app.lalla.data.ai.local.ModelStatus
 import app.lalla.data.ai.ollama.OllamaEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
@@ -19,7 +22,7 @@ import javax.inject.Inject
 enum class SettingsConnectionStatus { UNKNOWN, CHECKING, CONNECTED, DISCONNECTED }
 
 data class SettingsUiState(
-    val provider: String = RoutingAiEngine.PROVIDER_OLLAMA,
+    val provider: String = RoutingAiEngine.PROVIDER_LOCAL,
     val freeLlmUrl: String = "http://localhost:3000/v1",
     val freeLlmModel: String = "gemini-1.5-flash",
     val freeLlmApiKey: String = "",
@@ -27,23 +30,31 @@ data class SettingsUiState(
     val ollamaModel: String = "qwen2.5:3b",
     val temperature: Float = 0.7f,
     val isSaved: Boolean = false,
-    val connectionStatus: SettingsConnectionStatus = SettingsConnectionStatus.UNKNOWN
+    val connectionStatus: SettingsConnectionStatus = SettingsConnectionStatus.UNKNOWN,
+    val modelInfo: ModelInfo = ModelInfo(
+        fileName = ModelManager.DEFAULT_MODEL_NAME,
+        filePath = "",
+        fileSizeMb = 0L,
+        status = ModelStatus.NOT_FOUND
+    )
 )
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
-    private val dataStore: DataStore<Preferences>
+    private val dataStore: DataStore<Preferences>,
+    private val modelManager: ModelManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
     init {
+        refreshModelInfo()
         viewModelScope.launch {
             dataStore.data.collect { prefs ->
                 _uiState.update {
                     it.copy(
-                        provider = prefs[RoutingAiEngine.KEY_PROVIDER] ?: RoutingAiEngine.PROVIDER_OLLAMA,
+                        provider = prefs[RoutingAiEngine.KEY_PROVIDER] ?: RoutingAiEngine.PROVIDER_LOCAL,
                         freeLlmUrl = prefs[RoutingAiEngine.KEY_FREELLM_URL] ?: "http://localhost:3000/v1",
                         freeLlmModel = prefs[RoutingAiEngine.KEY_FREELLM_MODEL] ?: "gemini-1.5-flash",
                         freeLlmApiKey = prefs[RoutingAiEngine.KEY_FREELLM_API_KEY] ?: "",
@@ -54,6 +65,11 @@ class SettingsViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    fun refreshModelInfo() {
+        val info = modelManager.getModelInfo()
+        _uiState.update { it.copy(modelInfo = info) }
     }
 
     fun testConnection() {

@@ -4,6 +4,8 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import app.lalla.data.ai.local.LocalLlamaEngine
+import app.lalla.data.ai.local.ModelManager
 import app.lalla.data.ai.mock.MockAiEngine
 import app.lalla.data.ai.ollama.OllamaEngine
 import app.lalla.data.ai.openai.OpenAiCompatibleEngine
@@ -19,11 +21,13 @@ import javax.inject.Singleton
 @Singleton
 class RoutingAiEngine @Inject constructor(
     private val dataStore: DataStore<Preferences>,
-    private val okHttpClient: OkHttpClient
+    private val okHttpClient: OkHttpClient,
+    private val localLlamaEngine: LocalLlamaEngine,
+    private val modelManager: ModelManager
 ) : AiEngine {
 
     companion object {
-        val KEY_PROVIDER = stringPreferencesKey("key_provider") // "freellmapi", "ollama", "mock"
+        val KEY_PROVIDER = stringPreferencesKey("key_provider") // "local", "ollama", "freellmapi", "mock"
         val KEY_FREELLM_URL = stringPreferencesKey("key_freellm_url")
         val KEY_FREELLM_MODEL = stringPreferencesKey("key_freellm_model")
         val KEY_FREELLM_API_KEY = stringPreferencesKey("key_freellm_api_key")
@@ -31,27 +35,21 @@ class RoutingAiEngine @Inject constructor(
         val KEY_OLLAMA_MODEL = stringPreferencesKey("key_ollama_model")
         val KEY_TEMPERATURE = floatPreferencesKey("key_temperature")
 
-        const val PROVIDER_FREELLM = "freellmapi"
+        const val PROVIDER_LOCAL = "local"
         const val PROVIDER_OLLAMA = "ollama"
+        const val PROVIDER_FREELLM = "freellmapi"
         const val PROVIDER_MOCK = "mock"
     }
 
     private suspend fun resolveEngine(): AiEngine {
         val prefs = dataStore.data.first()
-        val provider = prefs[KEY_PROVIDER] ?: PROVIDER_OLLAMA
+        val provider = prefs[KEY_PROVIDER] ?: PROVIDER_LOCAL
         val temperature = (prefs[KEY_TEMPERATURE] ?: 0.7f).toDouble()
 
         return when (provider) {
-            PROVIDER_FREELLM -> {
-                val url = prefs[KEY_FREELLM_URL] ?: "http://localhost:3000/v1"
-                val model = prefs[KEY_FREELLM_MODEL] ?: "gemini-1.5-flash"
-                val apiKey = prefs[KEY_FREELLM_API_KEY] ?: ""
-                OpenAiCompatibleEngine(
-                    baseUrl = url,
-                    modelName = model,
-                    apiKey = apiKey,
-                    temperature = temperature
-                )
+            PROVIDER_LOCAL -> {
+                // Standalone on-device engine
+                localLlamaEngine
             }
             PROVIDER_OLLAMA -> {
                 val url = prefs[KEY_OLLAMA_URL] ?: "http://localhost:11434"
@@ -63,11 +61,24 @@ class RoutingAiEngine @Inject constructor(
                     client = okHttpClient
                 )
             }
+            PROVIDER_FREELLM -> {
+                val url = prefs[KEY_FREELLM_URL] ?: "http://localhost:3000/v1"
+                val model = prefs[KEY_FREELLM_MODEL] ?: "gemini-1.5-flash"
+                val apiKey = prefs[KEY_FREELLM_API_KEY] ?: ""
+                OpenAiCompatibleEngine(
+                    baseUrl = url,
+                    modelName = model,
+                    apiKey = apiKey,
+                    temperature = temperature,
+                    client = okHttpClient
+                )
+            }
             PROVIDER_MOCK -> {
                 MockAiEngine()
             }
             else -> {
-                OpenAiCompatibleEngine(temperature = temperature)
+                // If local model is present, default to local, otherwise Mock
+                if (modelManager.getModelFile() != null) localLlamaEngine else MockAiEngine()
             }
         }
     }

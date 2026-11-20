@@ -56,6 +56,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import app.lalla.data.ai.RoutingAiEngine
+import app.lalla.data.ai.local.ModelInfo
+import app.lalla.data.ai.local.ModelStatus
 import app.lalla.ui.theme.CyanAccent
 import app.lalla.ui.theme.DarkBackground
 import app.lalla.ui.theme.DarkSurfaceVariant
@@ -115,13 +117,19 @@ fun SettingsScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     EngineChip(
-                        label = "Local Ollama",
+                        label = "On-Device",
+                        emoji = "📱",
+                        selected = uiState.provider == RoutingAiEngine.PROVIDER_LOCAL,
+                        onClick = { viewModel.selectProvider(RoutingAiEngine.PROVIDER_LOCAL) }
+                    )
+                    EngineChip(
+                        label = "Ollama",
                         emoji = "🏠",
                         selected = uiState.provider == RoutingAiEngine.PROVIDER_OLLAMA,
                         onClick = { viewModel.selectProvider(RoutingAiEngine.PROVIDER_OLLAMA) }
                     )
                     EngineChip(
-                        label = "FreeLLM/Cloud",
+                        label = "Cloud",
                         emoji = "☁️",
                         selected = uiState.provider == RoutingAiEngine.PROVIDER_FREELLM,
                         onClick = { viewModel.selectProvider(RoutingAiEngine.PROVIDER_FREELLM) }
@@ -137,11 +145,13 @@ fun SettingsScreen(
 
             // ── Engine Config ───────────────────────────────────────────────
             SettingsCard(title = when (uiState.provider) {
+                RoutingAiEngine.PROVIDER_LOCAL -> "On-Device Standalone AI"
                 RoutingAiEngine.PROVIDER_OLLAMA -> "Ollama Local Engine"
                 RoutingAiEngine.PROVIDER_FREELLM -> "FreeLLMAPI / OpenAI Endpoint"
                 else -> "Demo Mock Mode"
             }) {
                 when (uiState.provider) {
+                    RoutingAiEngine.PROVIDER_LOCAL -> LocalModelConfig(uiState.modelInfo) { viewModel.refreshModelInfo() }
                     RoutingAiEngine.PROVIDER_OLLAMA -> OllamaConfig(uiState, viewModel)
                     RoutingAiEngine.PROVIDER_FREELLM -> FreeLlmConfig(uiState, viewModel)
                     else -> {
@@ -204,34 +214,10 @@ fun SettingsScreen(
                 }
             }
 
-            // ── ADB Setup Guide ─────────────────────────────────────────────
-            SettingsCard(title = "ADB Tunnel Setup") {
-                Text(
-                    text = "Run in PowerShell (USB cable connected):",
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                )
-                Spacer(Modifier.height(8.dp))
-                Surface(
-                    color = Color(0xFF0A0A14),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        CodeLine("# Ollama (port 11434):", isComment = true)
-                        CodeLine("adb reverse tcp:11434 tcp:11434")
-                        Spacer(Modifier.height(6.dp))
-                        CodeLine("# FreeLLMAPI (port 3000):", isComment = true)
-                        CodeLine("adb reverse tcp:3000 tcp:3000")
-                    }
-                }
-            }
-
             // ── About ───────────────────────────────────────────────────────
             SettingsCard(title = "About LALLA") {
                 Text(
-                    text = "LALLA – Your Personal AI Companion\nVersion 0.2.0 (Phase 2: Voice + Memory + Premium UI)\nPrivacy-first · 100% Local · Hindi / English / Hinglish",
+                    text = "LALLA – Your Personal AI Companion\nVersion 0.3.0 (Standalone On-Device AI)\n100% Offline · Private · Works without PC or USB",
                     style = MaterialTheme.typography.bodySmall.copy(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = 20.sp
@@ -241,6 +227,67 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(24.dp))
         }
+    }
+}
+
+@Composable
+fun LocalModelConfig(modelInfo: ModelInfo, onRefresh: () -> Unit) {
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            val statusColor = when (modelInfo.status) {
+                ModelStatus.READY -> CyanAccent
+                ModelStatus.NOT_FOUND -> MaterialTheme.colorScheme.error
+                ModelStatus.ERROR -> MaterialTheme.colorScheme.error
+                ModelStatus.VALIDATING -> VividViolet
+            }
+            Icon(
+                Icons.Default.Circle,
+                contentDescription = null,
+                tint = statusColor,
+                modifier = Modifier.size(12.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = when (modelInfo.status) {
+                    ModelStatus.READY -> "Model Ready (${modelInfo.fileSizeMb} MB)"
+                    ModelStatus.NOT_FOUND -> "Model Not Installed"
+                    ModelStatus.ERROR -> "Model Invalid"
+                    ModelStatus.VALIDATING -> "Validating..."
+                },
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = statusColor
+                )
+            )
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = onRefresh, modifier = Modifier.size(28.dp)) {
+                Icon(Icons.Default.Refresh, "Refresh", tint = VividViolet, modifier = Modifier.size(16.dp))
+            }
+        }
+
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = "Model: ${modelInfo.fileName}",
+            fontFamily = FontFamily.Monospace,
+            fontSize = 11.sp,
+            color = Color.White.copy(alpha = 0.8f)
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "Path: ${modelInfo.filePath}",
+            fontFamily = FontFamily.Monospace,
+            fontSize = 10.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+        )
+
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = "Runs 100% on-device inside your phone using native llama.cpp. No internet, PC, or server needed.",
+            style = MaterialTheme.typography.bodySmall.copy(
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                lineHeight = 18.sp
+            )
+        )
     }
 }
 
@@ -437,16 +484,5 @@ fun SmallPresetChip(label: String, selected: Boolean, onClick: () -> Unit) {
             selectedBorderColor = VividViolet,
             borderColor = DarkSurfaceVariant.copy(alpha = 0.5f)
         )
-    )
-}
-
-@Composable
-fun CodeLine(text: String, isComment: Boolean = false) {
-    Text(
-        text = text,
-        fontFamily = FontFamily.Monospace,
-        fontSize = if (isComment) 10.sp else 12.sp,
-        color = if (isComment) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                else CyanAccent
     )
 }
