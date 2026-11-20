@@ -3,10 +3,9 @@ package app.lalla.ui.settings
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.floatPreferencesKey
-import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.lalla.data.ai.RoutingAiEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,8 +15,12 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class SettingsUiState(
+    val provider: String = RoutingAiEngine.PROVIDER_FREELLM,
+    val freeLlmUrl: String = "http://localhost:3000/v1",
+    val freeLlmModel: String = "gemini-1.5-flash",
+    val freeLlmApiKey: String = "",
     val ollamaUrl: String = "http://localhost:11434",
-    val modelName: String = "qwen2.5:3b",
+    val ollamaModel: String = "qwen2.5:3b",
     val temperature: Float = 0.7f,
     val isSaved: Boolean = false
 )
@@ -27,12 +30,6 @@ class SettingsViewModel @Inject constructor(
     private val dataStore: DataStore<Preferences>
 ) : ViewModel() {
 
-    companion object {
-        val KEY_OLLAMA_URL = stringPreferencesKey("key_ollama_url")
-        val KEY_MODEL_NAME = stringPreferencesKey("key_model_name")
-        val KEY_TEMPERATURE = floatPreferencesKey("key_temperature")
-    }
-
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
@@ -41,21 +38,41 @@ class SettingsViewModel @Inject constructor(
             dataStore.data.collect { prefs ->
                 _uiState.update {
                     it.copy(
-                        ollamaUrl = prefs[KEY_OLLAMA_URL] ?: "http://localhost:11434",
-                        modelName = prefs[KEY_MODEL_NAME] ?: "qwen2.5:3b",
-                        temperature = prefs[KEY_TEMPERATURE] ?: 0.7f
+                        provider = prefs[RoutingAiEngine.KEY_PROVIDER] ?: RoutingAiEngine.PROVIDER_FREELLM,
+                        freeLlmUrl = prefs[RoutingAiEngine.KEY_FREELLM_URL] ?: "http://localhost:3000/v1",
+                        freeLlmModel = prefs[RoutingAiEngine.KEY_FREELLM_MODEL] ?: "gemini-1.5-flash",
+                        freeLlmApiKey = prefs[RoutingAiEngine.KEY_FREELLM_API_KEY] ?: "",
+                        ollamaUrl = prefs[RoutingAiEngine.KEY_OLLAMA_URL] ?: "http://localhost:11434",
+                        ollamaModel = prefs[RoutingAiEngine.KEY_OLLAMA_MODEL] ?: "qwen2.5:3b",
+                        temperature = prefs[RoutingAiEngine.KEY_TEMPERATURE] ?: 0.7f
                     )
                 }
             }
         }
     }
 
+    fun selectProvider(provider: String) {
+        _uiState.update { it.copy(provider = provider, isSaved = false) }
+    }
+
+    fun updateFreeLlmUrl(url: String) {
+        _uiState.update { it.copy(freeLlmUrl = url, isSaved = false) }
+    }
+
+    fun updateFreeLlmModel(model: String) {
+        _uiState.update { it.copy(freeLlmModel = model, isSaved = false) }
+    }
+
+    fun updateFreeLlmApiKey(key: String) {
+        _uiState.update { it.copy(freeLlmApiKey = key, isSaved = false) }
+    }
+
     fun updateOllamaUrl(url: String) {
         _uiState.update { it.copy(ollamaUrl = url, isSaved = false) }
     }
 
-    fun updateModelName(model: String) {
-        _uiState.update { it.copy(modelName = model, isSaved = false) }
+    fun updateOllamaModel(model: String) {
+        _uiState.update { it.copy(ollamaModel = model, isSaved = false) }
     }
 
     fun updateTemperature(temp: Float) {
@@ -65,9 +82,13 @@ class SettingsViewModel @Inject constructor(
     fun saveSettings() {
         viewModelScope.launch {
             dataStore.edit { prefs ->
-                prefs[KEY_OLLAMA_URL] = _uiState.value.ollamaUrl.trim()
-                prefs[KEY_MODEL_NAME] = _uiState.value.modelName.trim()
-                prefs[KEY_TEMPERATURE] = _uiState.value.temperature
+                prefs[RoutingAiEngine.KEY_PROVIDER] = _uiState.value.provider
+                prefs[RoutingAiEngine.KEY_FREELLM_URL] = _uiState.value.freeLlmUrl.trim()
+                prefs[RoutingAiEngine.KEY_FREELLM_MODEL] = _uiState.value.freeLlmModel.trim()
+                prefs[RoutingAiEngine.KEY_FREELLM_API_KEY] = _uiState.value.freeLlmApiKey.trim()
+                prefs[RoutingAiEngine.KEY_OLLAMA_URL] = _uiState.value.ollamaUrl.trim()
+                prefs[RoutingAiEngine.KEY_OLLAMA_MODEL] = _uiState.value.ollamaModel.trim()
+                prefs[RoutingAiEngine.KEY_TEMPERATURE] = _uiState.value.temperature
             }
             _uiState.update { it.copy(isSaved = true) }
         }

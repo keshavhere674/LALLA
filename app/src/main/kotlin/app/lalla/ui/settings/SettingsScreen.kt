@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -42,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import app.lalla.data.ai.RoutingAiEngine
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,7 +84,7 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // AI Configuration
+            // Provider Selection
             Card(
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -92,75 +92,202 @@ fun SettingsScreen(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "AI Model & Connectivity",
+                        text = "Active AI Engine",
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.primary
                     )
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                    // Ollama URL
-                    OutlinedTextField(
-                        value = uiState.ollamaUrl,
-                        onValueChange = { viewModel.updateOllamaUrl(it) },
-                        label = { Text("Ollama Server URL") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        shape = RoundedCornerShape(8.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // URL Presets
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         FilterChip(
-                            selected = uiState.ollamaUrl == "http://localhost:11434",
-                            onClick = { viewModel.updateOllamaUrl("http://localhost:11434") },
-                            label = { Text("USB / ADB Reverse", fontSize = 11.sp) }
+                            selected = uiState.provider == RoutingAiEngine.PROVIDER_FREELLM,
+                            onClick = { viewModel.selectProvider(RoutingAiEngine.PROVIDER_FREELLM) },
+                            label = { Text("FreeLLM / Cloud", fontSize = 12.sp) }
                         )
                         FilterChip(
-                            selected = uiState.ollamaUrl == "http://10.0.2.2:11434",
-                            onClick = { viewModel.updateOllamaUrl("http://10.0.2.2:11434") },
-                            label = { Text("Emulator", fontSize = 11.sp) }
+                            selected = uiState.provider == RoutingAiEngine.PROVIDER_OLLAMA,
+                            onClick = { viewModel.selectProvider(RoutingAiEngine.PROVIDER_OLLAMA) },
+                            label = { Text("Local Ollama", fontSize = 12.sp) }
                         )
+                        FilterChip(
+                            selected = uiState.provider == RoutingAiEngine.PROVIDER_MOCK,
+                            onClick = { viewModel.selectProvider(RoutingAiEngine.PROVIDER_MOCK) },
+                            label = { Text("Demo Mock", fontSize = 12.sp) }
+                        )
+                    }
+                }
+            }
+
+            // Engine Configuration Card
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    when (uiState.provider) {
+                        RoutingAiEngine.PROVIDER_FREELLM -> {
+                            Text(
+                                text = "FreeLLMAPI / OpenAI Endpoint",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            OutlinedTextField(
+                                value = uiState.freeLlmUrl,
+                                onValueChange = { viewModel.updateFreeLlmUrl(it) },
+                                label = { Text("Base URL") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(8.dp)
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                FilterChip(
+                                    selected = uiState.freeLlmUrl == "http://localhost:3000/v1",
+                                    onClick = { viewModel.updateFreeLlmUrl("http://localhost:3000/v1") },
+                                    label = { Text("Local Port 3000", fontSize = 11.sp) }
+                                )
+                                FilterChip(
+                                    selected = uiState.freeLlmUrl == "https://api.groq.com/openai/v1",
+                                    onClick = { viewModel.updateFreeLlmUrl("https://api.groq.com/openai/v1") },
+                                    label = { Text("Groq Cloud", fontSize = 11.sp) }
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            OutlinedTextField(
+                                value = uiState.freeLlmModel,
+                                onValueChange = { viewModel.updateFreeLlmModel(it) },
+                                label = { Text("Model Name") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(8.dp)
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                FilterChip(
+                                    selected = uiState.freeLlmModel == "gemini-1.5-flash",
+                                    onClick = { viewModel.updateFreeLlmModel("gemini-1.5-flash") },
+                                    label = { Text("Gemini Flash", fontSize = 11.sp) }
+                                )
+                                FilterChip(
+                                    selected = uiState.freeLlmModel == "llama-3.3-70b-versatile",
+                                    onClick = { viewModel.updateFreeLlmModel("llama-3.3-70b-versatile") },
+                                    label = { Text("Llama 3.3 70B", fontSize = 11.sp) }
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            OutlinedTextField(
+                                value = uiState.freeLlmApiKey,
+                                onValueChange = { viewModel.updateFreeLlmApiKey(it) },
+                                label = { Text("API Key (optional for local FreeLLMAPI)") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                        }
+
+                        RoutingAiEngine.PROVIDER_OLLAMA -> {
+                            Text(
+                                text = "Ollama Local Engine",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            OutlinedTextField(
+                                value = uiState.ollamaUrl,
+                                onValueChange = { viewModel.updateOllamaUrl(it) },
+                                label = { Text("Ollama URL") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(8.dp)
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                FilterChip(
+                                    selected = uiState.ollamaUrl == "http://localhost:11434",
+                                    onClick = { viewModel.updateOllamaUrl("http://localhost:11434") },
+                                    label = { Text("USB / ADB Reverse", fontSize = 11.sp) }
+                                )
+                                FilterChip(
+                                    selected = uiState.ollamaUrl == "http://10.0.2.2:11434",
+                                    onClick = { viewModel.updateOllamaUrl("http://10.0.2.2:11434") },
+                                    label = { Text("Emulator", fontSize = 11.sp) }
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            OutlinedTextField(
+                                value = uiState.ollamaModel,
+                                onValueChange = { viewModel.updateOllamaModel(it) },
+                                label = { Text("Model Identifier") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(8.dp)
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                FilterChip(
+                                    selected = uiState.ollamaModel == "qwen2.5:3b",
+                                    onClick = { viewModel.updateOllamaModel("qwen2.5:3b") },
+                                    label = { Text("Qwen2.5 3B (Fast)", fontSize = 11.sp) }
+                                )
+                                FilterChip(
+                                    selected = uiState.ollamaModel == "qwen2.5:7b",
+                                    onClick = { viewModel.updateOllamaModel("qwen2.5:7b") },
+                                    label = { Text("Qwen2.5 7B (Smart)", fontSize = 11.sp) }
+                                )
+                            }
+                        }
+
+                        RoutingAiEngine.PROVIDER_MOCK -> {
+                            Text(
+                                text = "Demo / Offline Mock Mode",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Generates simulated multilingual responses directly on device without requiring any server running.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Model Name
-                    OutlinedTextField(
-                        value = uiState.modelName,
-                        onValueChange = { viewModel.updateModelName(it) },
-                        label = { Text("Model Identifier") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        shape = RoundedCornerShape(8.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Model Presets
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        FilterChip(
-                            selected = uiState.modelName == "qwen2.5:3b",
-                            onClick = { viewModel.updateModelName("qwen2.5:3b") },
-                            label = { Text("Qwen2.5 3B (Fast)", fontSize = 11.sp) }
-                        )
-                        FilterChip(
-                            selected = uiState.modelName == "qwen2.5:7b",
-                            onClick = { viewModel.updateModelName("qwen2.5:7b") },
-                            label = { Text("Qwen2.5 7B (Smart)", fontSize = 11.sp) }
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Temperature
+                    // Creativity / Temperature
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -220,23 +347,43 @@ fun SettingsScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "For your physical Android phone to communicate with Ollama on Windows over USB, run this command in PowerShell:",
+                        text = "Run these commands in PowerShell over USB cable for phone connectivity:",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
                     Surface(
                         color = MaterialTheme.colorScheme.surface,
                         shape = RoundedCornerShape(6.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(
-                            text = "adb reverse tcp:11434 tcp:11434",
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(10.dp)
-                        )
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text(
+                                text = "# For FreeLLMAPI (port 3000):",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "adb reverse tcp:3000 tcp:3000",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "# For Ollama (port 11434):",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "adb reverse tcp:11434 tcp:11434",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                 }
             }

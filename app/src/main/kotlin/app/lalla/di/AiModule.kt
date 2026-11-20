@@ -5,7 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
 import app.lalla.data.ai.AiEngine
-import app.lalla.data.ai.ollama.OllamaEngine
+import app.lalla.data.ai.RoutingAiEngine
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -29,12 +29,9 @@ object AiModule {
 
     @Provides
     @Singleton
-    fun provideAiEngine(): AiEngine {
-        // By default, uses local Ollama via ADB reverse (http://localhost:11434) with Qwen2.5-3B
-        return OllamaEngine(
-            baseUrl = "http://localhost:11434",
-            modelName = "qwen2.5:3b",
-            temperature = 0.7
-        )
+    fun provideAiEngine(
+        routingEngine: RoutingAiEngine
+    ): AiEngine {
+        return routingEngine
     }
 }
