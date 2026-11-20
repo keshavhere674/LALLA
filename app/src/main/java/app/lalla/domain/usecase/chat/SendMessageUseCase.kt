@@ -1,6 +1,7 @@
 package app.lalla.domain.usecase.chat
 
 import app.lalla.data.ai.prompt.SystemPromptBuilder
+import app.lalla.data.datetime.DateTimeHelper
 import app.lalla.domain.model.AiPrompt
 import app.lalla.domain.model.Memory
 import app.lalla.domain.model.MemorySource
@@ -26,33 +27,52 @@ class SendMessageUseCase @Inject constructor(
     private val aiRepository: AiRepository
 ) {
     operator fun invoke(conversationId: Long, userText: String): Flow<SendMessageResult> = flow {
+        val trimmedInput = userText.trim()
+        if (trimmedInput.isBlank()) return@flow
+
         // 1. Save user message to database
         val userMessage = Message(
             conversationId = conversationId,
             role = MessageRole.USER,
-            content = userText.trim()
+            content = trimmedInput
         )
         val savedUserMsgId = conversationRepository.saveMessage(userMessage)
 
-        // 2. Fetch conversation history & memories (excluding the message just saved)
-        val history = conversationRepository.getRecentMessages(conversationId, limit = 20)
+        // 2. Deterministic short-circuit for date/time/day questions:
+        // Ensures 100% accurate, live device clock answers without LLM latency or hallucination.
+        val deterministicResponse = DateTimeHelper.tryResolveDateOrTime(trimmedInput)
+        if (deterministicResponse != null) {
+            conversationRepository.saveMessage(
+                Message(
+                    conversationId = conversationId,
+                    role = MessageRole.ASSISTANT,
+                    content = deterministicResponse
+                )
+            )
+            emit(SendMessageResult.Token(deterministicResponse))
+            emit(SendMessageResult.Complete(fullResponse = deterministicResponse, cleanedText = deterministicResponse))
+            return@flow
+        }
+
+        // 3. For all other queries: fetch last 6 messages to keep prompt eval lightning fast
+        val history = conversationRepository.getRecentMessages(conversationId, limit = 6)
             .filter { it.id != savedUserMsgId }
         val memories = memoryRepository.getAllMemoriesSnapshot()
 
-        // 3. Construct system prompt with current date/time injected
-        val currentDateTime = SystemPromptBuilder.currentDateTimeString()
+        // 4. Construct system prompt with live clock ground-truth injected
+        val clockDetails = SystemPromptBuilder.currentClockDetails()
         val systemPrompt = SystemPromptBuilder.build(
             memories = memories.map { it.content },
-            currentDateTime = currentDateTime
+            currentDateTime = clockDetails
         )
         val prompt = AiPrompt(
             systemInstruction = systemPrompt,
             injectedMemories = memories,
             history = history,
-            userMessage = userText.trim()
+            userMessage = trimmedInput
         )
 
-        // 4. Stream response from AI engine - emit raw tokens
+        // 5. Stream response from AI engine
         val fullResponseBuilder = StringBuilder()
         aiRepository.streamChat(prompt).collect { token ->
             fullResponseBuilder.append(token)
@@ -61,7 +81,7 @@ class SendMessageUseCase @Inject constructor(
 
         val rawFullResponse = fullResponseBuilder.toString()
 
-        // 5. Parse out [MEMORY] tags if present
+        // 6. Parse out [MEMORY] tags if present
         val lines = rawFullResponse.lines()
         val cleanedLines = mutableListOf<String>()
 
@@ -84,7 +104,7 @@ class SendMessageUseCase @Inject constructor(
 
         val cleanResponse = cleanedLines.joinToString("\n").trim()
 
-        // 6. Save assistant message to database (cleaned version without [MEMORY] tags)
+        // 7. Save assistant message to database
         if (cleanResponse.isNotEmpty()) {
             conversationRepository.saveMessage(
                 Message(
@@ -97,6 +117,6 @@ class SendMessageUseCase @Inject constructor(
 
         emit(SendMessageResult.Complete(fullResponse = cleanResponse, cleanedText = cleanResponse))
     }.catch { e ->
-        emit(SendMessageResult.Error(e.localizedMessage ?: "Unable to reach AI. Check if Ollama is running."))
+        emit(SendMessageResult.Error(e.localizedMessage ?: "Unable to reach Ollama at localhost:11434"))
     }
 }

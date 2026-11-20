@@ -1,5 +1,6 @@
 package app.lalla.data.ai.ollama
 
+import android.util.Log
 import app.lalla.data.ai.AiEngine
 import app.lalla.domain.model.AiPrompt
 import app.lalla.domain.model.AiResponse
@@ -15,39 +16,45 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.io.BufferedReader
 import java.io.IOException
-import java.io.InputStreamReader
 import java.util.concurrent.TimeUnit
 
 class OllamaEngine(
     private val baseUrl: String = "http://localhost:11434",
     private val modelName: String = "qwen2.5:3b",
-    private val temperature: Double = 0.7
+    private val temperature: Double = 0.7,
+    private val client: OkHttpClient = defaultClient
 ) : AiEngine {
+
+    companion object {
+        private const val TAG = "LALLA_OLLAMA"
+
+        val defaultClient: OkHttpClient by lazy {
+            OkHttpClient.Builder()
+                .connectionPool(okhttp3.ConnectionPool(5, 10, TimeUnit.MINUTES))
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(120, TimeUnit.SECONDS)
+                .writeTimeout(30, TimeUnit.SECONDS)
+                .retryOnConnectionFailure(true)
+                .build()
+        }
+    }
 
     private val json = Json {
         ignoreUnknownKeys = true
         isLenient = true
     }
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(180, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(true)
-        .build()
-
-    /** Test if Ollama is reachable. Returns true if healthy. */
+    /** Test if Ollama is reachable and model is available */
     suspend fun testConnection(): Boolean {
         return try {
             val request = Request.Builder()
                 .url("${baseUrl.trimEnd('/')}/api/tags")
                 .get()
                 .build()
-            val response = client.newCall(request).execute()
-            response.close()
-            response.isSuccessful
+            client.newCall(request).execute().use { response ->
+                response.isSuccessful
+            }
         } catch (_: Exception) {
             false
         }
@@ -55,8 +62,11 @@ class OllamaEngine(
 
     override fun streamChat(prompt: AiPrompt): Flow<String> = flow {
         var lastException: Exception? = null
+        val startTime = System.currentTimeMillis()
+        var firstTokenTime = -1L
+        var tokenCount = 0
 
-        repeat(3) { attempt ->
+        repeat(2) { attempt ->
             try {
                 val messages = mutableListOf<OllamaMessage>()
 
@@ -79,12 +89,14 @@ class OllamaEngine(
                     model = modelName,
                     messages = messages,
                     stream = true,
+                    keepAlive = "60m",
                     options = OllamaOptions(
                         temperature = temperature,
-                        num_predict = 512,
-                        num_ctx = 4096,
+                        num_ctx = 2048,
+                        num_predict = 180,
                         repeat_penalty = 1.1,
-                        top_p = 0.9
+                        top_p = 0.9,
+                        top_k = 40
                     )
                 )
 
@@ -103,38 +115,47 @@ class OllamaEngine(
                         throw RuntimeException("Ollama error (HTTP ${response.code}): $errorBody")
                     }
 
-                    val source = response.body?.byteStream()
+                    val source = response.body?.source()
                         ?: throw RuntimeException("Empty response body from Ollama")
 
-                    val reader = BufferedReader(InputStreamReader(source))
-                    var line: String? = reader.readLine()
-                    while (line != null) {
+                    while (!source.exhausted()) {
+                        val line = source.readUtf8Line() ?: break
                         val trimmed = line.trim()
                         if (trimmed.isNotEmpty()) {
                             try {
                                 val parsed = json.decodeFromString<OllamaChatResponse>(trimmed)
                                 parsed.message?.content?.let { token ->
-                                    if (token.isNotEmpty()) emit(token)
+                                    if (token.isNotEmpty()) {
+                                        tokenCount++
+                                        if (firstTokenTime == -1L) {
+                                            firstTokenTime = System.currentTimeMillis() - startTime
+                                            Log.i(TAG, "⚡ Time to first token: ${firstTokenTime}ms")
+                                        }
+                                        emit(token)
+                                    }
                                 }
-                                if (parsed.done) return@use
+                                if (parsed.done) {
+                                    val totalDuration = System.currentTimeMillis() - startTime
+                                    Log.i(TAG, "🏁 Total duration: ${totalDuration}ms, tokens: $tokenCount, TTFT: ${firstTokenTime}ms")
+                                    return@use
+                                }
                             } catch (_: Exception) {
                                 // Skip malformed chunk
                             }
                         }
-                        line = reader.readLine()
                     }
                 }
-                // Success - return
                 return@flow
             } catch (e: IOException) {
                 lastException = e
-                if (attempt < 2) delay(1200L * (attempt + 1))
+                Log.w(TAG, "Ollama connection attempt $attempt failed: ${e.message}")
+                if (attempt < 1) delay(800L)
             } catch (e: RuntimeException) {
-                throw e // Don't retry HTTP-level errors
+                throw e
             }
         }
 
-        throw lastException ?: RuntimeException("Ollama connection failed after 3 attempts")
+        throw lastException ?: RuntimeException("Ollama connection failed after retries")
     }.flowOn(Dispatchers.IO)
 
     override suspend fun chat(prompt: AiPrompt): AiResponse {

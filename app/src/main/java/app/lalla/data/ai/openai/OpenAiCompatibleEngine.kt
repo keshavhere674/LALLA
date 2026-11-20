@@ -14,35 +14,32 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.io.BufferedReader
-import java.io.InputStreamReader
 import java.util.concurrent.TimeUnit
 
-/**
- * Universal OpenAI-compatible AI Engine.
- * Supports:
- * - FreeLLMAPI (e.g. http://localhost:3000/v1)
- * - Groq (https://api.groq.com/openai/v1)
- * - OpenRouter (https://openrouter.ai/api/v1)
- * - vLLM / LocalAI / Ollama OpenAI endpoint
- */
 class OpenAiCompatibleEngine(
     private val baseUrl: String = "http://localhost:3000/v1",
     private val modelName: String = "gemini-1.5-flash",
     private val apiKey: String = "",
-    private val temperature: Double = 0.7
+    private val temperature: Double = 0.7,
+    private val client: OkHttpClient = defaultClient
 ) : AiEngine {
+
+    companion object {
+        val defaultClient: OkHttpClient by lazy {
+            OkHttpClient.Builder()
+                .connectionPool(okhttp3.ConnectionPool(5, 10, TimeUnit.MINUTES))
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(120, TimeUnit.SECONDS)
+                .writeTimeout(30, TimeUnit.SECONDS)
+                .retryOnConnectionFailure(true)
+                .build()
+        }
+    }
 
     private val json = Json {
         ignoreUnknownKeys = true
         isLenient = true
     }
-
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .build()
 
     override fun streamChat(prompt: AiPrompt): Flow<String> = flow {
         val messages = mutableListOf<OpenAiMessage>()
@@ -95,12 +92,11 @@ class OpenAiCompatibleEngine(
                 throw RuntimeException("AI Provider error (HTTP ${response.code}): $errorBody")
             }
 
-            val source = response.body?.byteStream()
+            val source = response.body?.source()
                 ?: throw RuntimeException("Empty response body from AI Provider")
 
-            val reader = BufferedReader(InputStreamReader(source))
-            var line: String? = reader.readLine()
-            while (line != null) {
+            while (!source.exhausted()) {
+                val line = source.readUtf8Line() ?: break
                 val trimmed = line.trim()
                 if (trimmed.startsWith("data:")) {
                     val dataContent = trimmed.removePrefix("data:").trim()
@@ -119,7 +115,6 @@ class OpenAiCompatibleEngine(
                         }
                     }
                 }
-                line = reader.readLine()
             }
         }
     }.flowOn(Dispatchers.IO)

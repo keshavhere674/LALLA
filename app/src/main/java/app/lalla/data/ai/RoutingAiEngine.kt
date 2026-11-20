@@ -12,12 +12,14 @@ import app.lalla.domain.model.AiResponse
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import okhttp3.OkHttpClient
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class RoutingAiEngine @Inject constructor(
-    private val dataStore: DataStore<Preferences>
+    private val dataStore: DataStore<Preferences>,
+    private val okHttpClient: OkHttpClient
 ) : AiEngine {
 
     companion object {
@@ -57,7 +59,8 @@ class RoutingAiEngine @Inject constructor(
                 OllamaEngine(
                     baseUrl = url,
                     modelName = model,
-                    temperature = temperature
+                    temperature = temperature,
+                    client = okHttpClient
                 )
             }
             PROVIDER_MOCK -> {

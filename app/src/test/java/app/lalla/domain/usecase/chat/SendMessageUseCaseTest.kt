@@ -19,6 +19,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.time.ZonedDateTime
 
 class SendMessageUseCaseTest {
 
@@ -87,6 +88,35 @@ class SendMessageUseCaseTest {
                 it.role == MessageRole.ASSISTANT &&
                         it.content.contains("Namaste Keshav!") &&
                         !it.content.contains("[MEMORY]")
+            })
+        }
+    }
+
+    @Test
+    fun `invoke resolves direct date query deterministically with live clock`() = runBlocking {
+        val convId = 1L
+        val datePrompt = "Aaj kya date hai?"
+        val currentYear = ZonedDateTime.now().year.toString()
+
+        coEvery { conversationRepository.saveMessage(any()) } returns 101L
+
+        useCase(convId, datePrompt).test {
+            val token = awaitItem() as SendMessageResult.Token
+            assertTrue("Token must contain current year $currentYear", token.text.contains(currentYear))
+
+            val complete = awaitItem() as SendMessageResult.Complete
+            assertTrue("Complete must contain current year $currentYear", complete.fullResponse.contains(currentYear))
+
+            awaitComplete()
+        }
+
+        // Verify aiRepository was NOT called for deterministic query
+        coVerify(exactly = 0) { aiRepository.streamChat(any()) }
+
+        // Verify saved assistant message contains current year
+        coVerify {
+            conversationRepository.saveMessage(match {
+                it.role == MessageRole.ASSISTANT && it.content.contains(currentYear)
             })
         }
     }
