@@ -20,6 +20,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Circle
+import androidx.compose.material.icons.filled.Hearing
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
@@ -110,6 +113,66 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            // Background Wake-Word Listening (Master Control)
+            SettingsCard(title = "Background Wake-Word Listening") {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (uiState.isBackgroundListeningEnabled) "Active: Listening for \"LALLA\"" else "Disabled: Microphone OFF",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (uiState.isBackgroundListeningEnabled) Color(0xFF00E676) else Color.White.copy(alpha = 0.6f)
+                            )
+                        )
+                        Text(
+                            text = "Say \"LALLA\" even when the app is closed to set alarms, send WhatsApp, or check call logs.",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        )
+                    }
+                    Switch(
+                        checked = uiState.isBackgroundListeningEnabled,
+                        onCheckedChange = { viewModel.toggleBackgroundListening() },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = Color(0xFF00E676),
+                            uncheckedThumbColor = Color.Gray,
+                            uncheckedTrackColor = DarkSurfaceVariant
+                        )
+                    )
+                }
+
+                if (uiState.isBackgroundListeningEnabled) {
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = "Sensitivity: ${uiState.wakeWordSensitivity.toInt()}",
+                        style = MaterialTheme.typography.bodySmall.copy(color = Color.White.copy(alpha = 0.8f))
+                    )
+                    Slider(
+                        value = uiState.wakeWordSensitivity,
+                        onValueChange = { viewModel.updateWakeWordSensitivity(it) },
+                        valueRange = 500f..2500f,
+                        steps = 8,
+                        colors = SliderDefaults.colors(
+                            thumbColor = CyanAccent,
+                            activeTrackColor = CyanAccent,
+                            inactiveTrackColor = DarkBackground
+                        )
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Quiet Room (Low)", style = MaterialTheme.typography.labelSmall.copy(color = Color.Gray))
+                        Text("Default", style = MaterialTheme.typography.labelSmall.copy(color = Color.Gray))
+                        Text("Noisy (High)", style = MaterialTheme.typography.labelSmall.copy(color = Color.Gray))
+                    }
+                }
+            }
             // ── AI Engine Selector ──────────────────────────────────────────
             SettingsCard(title = "Active AI Engine") {
                 Row(

@@ -5,17 +5,22 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Intent
 import android.os.Build
+import app.lalla.data.settings.AppSettings
 import app.lalla.service.LallaWakeWordService
 import app.lalla.service.TaskExecutorReceiver
 import dagger.hilt.android.HiltAndroidApp
+import javax.inject.Inject
 
 @HiltAndroidApp
 class LallaApplication : Application() {
 
+    @Inject
+    lateinit var appSettings: AppSettings
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannels()
-        startWakeWordService()
+        startWakeWordServiceIfEnabled()
     }
 
     private fun createNotificationChannels() {
@@ -25,7 +30,7 @@ class LallaApplication : Application() {
                 listOf(
                     NotificationChannel(
                         LallaWakeWordService.CHANNEL_ID,
-                        "LALLA Active",
+                        "LALLA Background Listening",
                         NotificationManager.IMPORTANCE_LOW
                     ).apply { description = "Shows while LALLA is listening in background" },
                     NotificationChannel(
@@ -38,14 +43,14 @@ class LallaApplication : Application() {
         }
     }
 
-    private fun startWakeWordService() {
-        try {
-            val intent = Intent(this, LallaWakeWordService::class.java).apply {
-                action = LallaWakeWordService.ACTION_START
-            }
-            startForegroundService(intent)
-        } catch (e: Exception) {
-            // Will be started manually from MainActivity if needed
+    private fun startWakeWordServiceIfEnabled() {
+        if (appSettings.isBackgroundListeningEnabledSync()) {
+            try {
+                val intent = Intent(this, LallaWakeWordService::class.java).apply {
+                    action = LallaWakeWordService.ACTION_START
+                }
+                startForegroundService(intent)
+            } catch (_: Exception) {}
         }
     }
 }

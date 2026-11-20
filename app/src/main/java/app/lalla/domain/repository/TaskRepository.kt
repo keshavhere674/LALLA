@@ -8,6 +8,15 @@ interface TaskRepository {
     fun getAllTasks(): Flow<List<LallaTask>>
     suspend fun saveTask(task: LallaTask): Long
     suspend fun markComplete(id: Long)
+    suspend fun updateExecutionResult(
+        id: Long,
+        isCompleted: Boolean,
+        method: String?,
+        status: String?,
+        reason: String?,
+        timeMs: Long?
+    )
     suspend fun deleteTask(id: Long)
     suspend fun getOverdueTasks(): List<LallaTask>
+    suspend fun getTaskById(id: Long): LallaTask?
 }

@@ -20,7 +20,7 @@ import app.lalla.data.local.db.entity.TaskEntity
         MemoryEntity::class,
         TaskEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class LallaDatabase : RoomDatabase() {
@@ -47,6 +47,15 @@ abstract class LallaDatabase : RoomDatabase() {
                     )
                     """.trimIndent()
                 )
+            }
+        }
+
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE tasks ADD COLUMN executionMethod TEXT")
+                db.execSQL("ALTER TABLE tasks ADD COLUMN resultStatus TEXT")
+                db.execSQL("ALTER TABLE tasks ADD COLUMN failureReason TEXT")
+                db.execSQL("ALTER TABLE tasks ADD COLUMN executedAtMs INTEGER")
             }
         }
     }

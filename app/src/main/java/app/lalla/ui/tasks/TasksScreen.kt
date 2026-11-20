@@ -12,13 +12,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Message
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -33,7 +33,6 @@ import app.lalla.domain.model.TaskType
 import app.lalla.ui.theme.CyanAccent
 import app.lalla.ui.theme.DarkBackground
 import app.lalla.ui.theme.DarkSurfaceVariant
-import app.lalla.ui.theme.VividViolet
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -53,7 +52,7 @@ fun TasksScreen(
             TopAppBar(
                 title = {
                     Text(
-                        "LALLA Tasks",
+                        "LALLA Tasks & Logs",
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
@@ -64,11 +63,10 @@ fun TasksScreen(
                     }
                 },
                 actions = {
-                    // Toggle pending / all
                     FilterChip(
                         selected = showAll,
                         onClick = { showAll = !showAll },
-                        label = { Text(if (showAll) "All" else "Pending", fontSize = 12.sp) },
+                        label = { Text(if (showAll) "All Logs" else "Pending", fontSize = 12.sp) },
                         modifier = Modifier.padding(end = 8.dp)
                     )
                 },
@@ -83,7 +81,6 @@ fun TasksScreen(
                 .padding(padding)
         ) {
             if (displayTasks.isEmpty()) {
-                // Empty state
                 Column(
                     modifier = Modifier.align(Alignment.Center),
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -96,14 +93,14 @@ fun TasksScreen(
                     )
                     Spacer(Modifier.height(16.dp))
                     Text(
-                        if (showAll) "No tasks yet" else "No pending tasks",
+                        if (showAll) "No task logs yet" else "No pending tasks",
                         color = Color.White.copy(alpha = 0.7f),
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Medium
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "Say \"LALLA, set alarm for 7 AM\"\nor \"LALLA, remind me to call mom\"",
+                        "Say \"LALLA, alarm laga do 6:03 AM\"\nor \"LALLA, Papa ko WhatsApp bhejo\"",
                         color = Color.White.copy(alpha = 0.4f),
                         fontSize = 13.sp,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -116,7 +113,7 @@ fun TasksScreen(
                 ) {
                     item {
                         Text(
-                            "${displayTasks.size} ${if (showAll) "total" else "pending"} task${if (displayTasks.size != 1) "s" else ""}",
+                            "${displayTasks.size} ${if (showAll) "total execution log" else "pending task"}${if (displayTasks.size != 1) "s" else ""}",
                             color = Color.White.copy(alpha = 0.5f),
                             fontSize = 13.sp,
                             modifier = Modifier.padding(bottom = 4.dp)
@@ -164,7 +161,6 @@ private fun TaskCard(
             modifier = Modifier.padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Type icon badge
             Box(
                 modifier = Modifier
                     .size(44.dp)
@@ -189,7 +185,7 @@ private fun TaskCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     task.description,
-                    color = if (isCompleted) Color.White.copy(alpha = 0.4f) else Color.White,
+                    color = if (isCompleted) Color.White.copy(alpha = 0.5f) else Color.White,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
                     maxLines = 2,
@@ -198,11 +194,12 @@ private fun TaskCard(
 
                 Spacer(Modifier.height(4.dp))
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // Task type chip
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     TaskChip(task.type.name, accentColor)
 
-                    // Trigger time
                     task.triggerTimeMs?.let { ms ->
                         TaskChip(
                             SimpleDateFormat("hh:mm a, dd MMM", Locale.getDefault()).format(Date(ms)),
@@ -210,22 +207,31 @@ private fun TaskCard(
                         )
                     }
 
-                    // Contact for WhatsApp
                     task.targetContact?.let { contact ->
-                        TaskChip("→ $contact", Color(0xFF25D366))
+                        TaskChip("-> $contact", Color(0xFF25D366))
+                    }
+
+                    task.executionMethod?.let { method ->
+                        TaskChip(method, Color(0xFF81D4FA))
                     }
                 }
 
-                if (isCompleted) {
-                    Spacer(Modifier.height(2.dp))
-                    Text("✓ Completed", color = Color.Green.copy(alpha = 0.6f), fontSize = 11.sp)
+                if (task.resultStatus != null || isCompleted) {
+                    Spacer(Modifier.height(3.dp))
+                    val statusText = when (task.resultStatus) {
+                        "SUCCESS" -> "✓ Executed successfully"
+                        "FALLBACK_SUCCESS" -> "✓ Executed via fallback"
+                        "FAILED" -> "✗ Failed: ${task.failureReason ?: "Error"}"
+                        else -> "✓ Completed"
+                    }
+                    val statusColor = if (task.resultStatus == "FAILED") Color(0xFFFF5252) else Color(0xFF00E676)
+                    Text(statusText, color = statusColor, fontSize = 11.sp, fontWeight = FontWeight.Medium)
                 }
             }
 
-            // Action buttons
             if (!isCompleted) {
                 IconButton(onClick = onComplete, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Default.Check, "Complete", tint = Color.Green.copy(alpha = 0.8f))
+                    Icon(Icons.Default.Check, "Complete", tint = Color(0xFF00E676))
                 }
             }
             IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
@@ -241,15 +247,18 @@ private fun TaskChip(label: String, color: Color) {
         modifier = Modifier
             .clip(RoundedCornerShape(50))
             .background(color.copy(alpha = 0.15f))
-            .padding(horizontal = 8.dp, vertical = 2.dp)
+            .padding(horizontal = 7.dp, vertical = 2.dp)
     ) {
-        Text(label, color = color, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+        Text(label, color = color, fontSize = 10.sp, fontWeight = FontWeight.Medium)
     }
 }
 
 private fun taskIconAndColor(type: TaskType): Pair<ImageVector, Color> = when (type) {
-    TaskType.ALARM     -> Icons.Default.Alarm to Color(0xFFFFB300)
-    TaskType.REMINDER  -> Icons.Default.NotificationsActive to Color(0xFFCE93D8)
-    TaskType.WHATSAPP  -> Icons.Default.Message to Color(0xFF25D366)
-    TaskType.GENERIC   -> Icons.Default.Task to CyanAccent
+    TaskType.ALARM        -> Icons.Default.Alarm to Color(0xFFFFB300)
+    TaskType.REMINDER     -> Icons.Default.NotificationsActive to Color(0xFFCE93D8)
+    TaskType.WHATSAPP     -> Icons.AutoMirrored.Filled.Message to Color(0xFF25D366)
+    TaskType.GMAIL        -> Icons.Default.Email to Color(0xFFEA4335)
+    TaskType.FILE_SEARCH  -> Icons.Default.Folder to Color(0xFFFF9800)
+    TaskType.CALL_HISTORY -> Icons.Default.Phone to CyanAccent
+    TaskType.GENERIC      -> Icons.Default.Task to CyanAccent
 }

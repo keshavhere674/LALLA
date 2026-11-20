@@ -67,7 +67,6 @@ fun ChatScreen(
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
-    // Handle voice command delivered from background service
     LaunchedEffect(pendingVoiceCommand) {
         if (!pendingVoiceCommand.isNullOrBlank()) {
             inputText = pendingVoiceCommand
@@ -75,14 +74,12 @@ fun ChatScreen(
         }
     }
 
-    // Runtime permission launcher
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) viewModel.startVoiceInput()
     }
 
-    // Auto-scroll on new messages / streaming
     LaunchedEffect(uiState.messages.size, uiState.streamingResponse) {
         val totalCount = uiState.messages.size + if (uiState.isLoading) 1 else 0
         if (totalCount > 0) {
@@ -90,14 +87,12 @@ fun ChatScreen(
         }
     }
 
-    // Fill input from voice recognition partial text
     LaunchedEffect(uiState.voiceInputText) {
         if (uiState.voiceInputText.isNotBlank()) {
             inputText = uiState.voiceInputText
         }
     }
 
-    // ── Navigation Drawer (Chat History) ─────────────────────────────────────
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -123,23 +118,40 @@ fun ChatScreen(
                             Text(
                                 "LALLA",
                                 fontWeight = FontWeight.ExtraBold,
-                                fontSize = 20.sp,
+                                fontSize = 19.sp,
                                 color = Color.White
                             )
-                            Text(
-                                "Your Personal AI Companion",
-                                fontSize = 11.sp,
-                                color = CyanAccent.copy(alpha = 0.8f)
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .clip(CircleShape)
+                                        .background(if (uiState.isBackgroundListeningEnabled) Color(0xFF00E676) else Color.Gray)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    if (uiState.isBackgroundListeningEnabled) "Wake Word Active" else "Wake Word Off",
+                                    fontSize = 10.sp,
+                                    color = if (uiState.isBackgroundListeningEnabled) Color(0xFF00E676) else Color.White.copy(alpha = 0.5f)
+                                )
+                            }
                         }
                     },
                     navigationIcon = {
-                        // Hamburger menu → chat history drawer
                         IconButton(onClick = { scope.launch { drawerState.open() } }) {
                             Icon(Icons.Default.Menu, "Chat History", tint = Color.White)
                         }
                     },
                     actions = {
+                        // Master Wake Word Listening Toggle Button
+                        IconButton(onClick = { viewModel.toggleBackgroundListening() }) {
+                            Icon(
+                                imageVector = if (uiState.isBackgroundListeningEnabled) Icons.Default.Hearing else Icons.Default.HearingDisabled,
+                                contentDescription = "Toggle Background Listening",
+                                tint = if (uiState.isBackgroundListeningEnabled) Color(0xFF00E676) else Color.White.copy(alpha = 0.4f)
+                            )
+                        }
+
                         // TTS toggle
                         IconButton(onClick = { viewModel.toggleTts() }) {
                             Icon(
@@ -151,14 +163,17 @@ fun ChatScreen(
                                 tint = if (uiState.isTtsEnabled) CyanAccent else Color.Gray
                             )
                         }
-                        // Tasks button
+
+                        // Tasks Screen
                         IconButton(onClick = { navController.navigate(LallaDestinations.TASKS) }) {
                             Icon(Icons.Default.Task, "Tasks", tint = Color.White)
                         }
-                        // Memory button
+
+                        // Memory
                         IconButton(onClick = { navController.navigate(LallaDestinations.MEMORY) }) {
                             Icon(Icons.Default.Psychology, "Memory", tint = Color.White)
                         }
+
                         // Settings
                         IconButton(onClick = { navController.navigate(LallaDestinations.SETTINGS) }) {
                             Icon(Icons.Default.Settings, "Settings", tint = Color.White)
@@ -175,7 +190,7 @@ fun ChatScreen(
                     .padding(innerPadding)
                     .imePadding()
             ) {
-                // Error banner
+                // Error banner (only for fatal errors, not routine timeouts)
                 AnimatedVisibility(visible = uiState.error != null) {
                     uiState.error?.let { errorMsg ->
                         Card(
@@ -216,7 +231,7 @@ fun ChatScreen(
                     VoiceStateBanner(uiState.voiceState, uiState.voiceInputText)
                 }
 
-                // Messages
+                // Messages list
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
@@ -227,7 +242,7 @@ fun ChatScreen(
                 ) {
                     if (uiState.messages.isEmpty() && !uiState.isLoading) {
                         item {
-                            WelcomeMessage()
+                            WelcomeMessage(isListening = uiState.isBackgroundListeningEnabled)
                         }
                     }
 
@@ -235,7 +250,6 @@ fun ChatScreen(
                         MessageBubble(message = message)
                     }
 
-                    // Streaming bubble
                     if (uiState.isLoading && uiState.streamingResponse.isNotBlank()) {
                         item {
                             StreamingBubble(text = uiState.streamingResponse)
@@ -286,7 +300,6 @@ private fun ConversationHistoryDrawer(
         drawerContainerColor = Color(0xFF0D1117),
         modifier = Modifier.fillMaxHeight()
     ) {
-        // Header
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -314,7 +327,6 @@ private fun ConversationHistoryDrawer(
             }
         }
 
-        // New Chat button
         NavigationDrawerItem(
             icon = { Icon(Icons.Default.Add, null, tint = CyanAccent) },
             label = {
@@ -405,9 +417,9 @@ private fun VoiceStateBanner(voiceState: VoiceState, voiceInputText: String) {
     )
 
     val (bg, label) = when (voiceState) {
-        VoiceState.LISTENING -> CyanAccent.copy(alpha = 0.15f) to "🎤 Listening..."
-        VoiceState.THINKING  -> VividViolet.copy(alpha = 0.15f) to "🤔 Thinking..."
-        VoiceState.SPEAKING  -> Color(0xFF25D366).copy(alpha = 0.12f) to "🔊 Speaking..."
+        VoiceState.LISTENING -> CyanAccent.copy(alpha = 0.15f) to "🎤 Sun raha hoon..."
+        VoiceState.THINKING  -> VividViolet.copy(alpha = 0.15f) to "🤔 Soch raha hoon..."
+        VoiceState.SPEAKING  -> Color(0xFF00E676).copy(alpha = 0.12f) to "🔊 Bol raha hoon..."
         VoiceState.IDLE      -> Color.Transparent to ""
     }
 
@@ -443,7 +455,7 @@ private fun VoiceStateBanner(voiceState: VoiceState, voiceInputText: String) {
 // ── Welcome Message ───────────────────────────────────────────────────────────
 
 @Composable
-private fun WelcomeMessage() {
+private fun WelcomeMessage(isListening: Boolean) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -453,7 +465,7 @@ private fun WelcomeMessage() {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Box(
                 modifier = Modifier
-                    .size(80.dp)
+                    .size(72.dp)
                     .clip(CircleShape)
                     .background(
                         Brush.radialGradient(
@@ -466,10 +478,10 @@ private fun WelcomeMessage() {
                     Icons.Default.AutoAwesome,
                     contentDescription = null,
                     tint = VividViolet,
-                    modifier = Modifier.size(40.dp)
+                    modifier = Modifier.size(36.dp)
                 )
             }
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(14.dp))
             Text(
                 "Namaste! Main LALLA hoon 👋",
                 color = Color.White,
@@ -477,25 +489,28 @@ private fun WelcomeMessage() {
                 fontSize = 18.sp,
                 textAlign = TextAlign.Center
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(6.dp))
             Text(
-                "Kuch bhi poochein ya bolein.\nBackground mein bhi sun raha hoon — bas bolein \"LALLA\" aur apna kaam batayein!",
+                if (isListening)
+                    "Wake word active: Say \"LALLA\" followed by your task!"
+                else
+                    "Tap 👂 top bar icon to turn ON background wake-word listening.",
                 color = Color.White.copy(alpha = 0.6f),
                 fontSize = 13.sp,
                 textAlign = TextAlign.Center,
-                lineHeight = 20.sp
+                lineHeight = 18.sp
             )
-            Spacer(Modifier.height(16.dp))
-            // Quick suggestions
+            Spacer(Modifier.height(14.dp))
             listOf(
-                "🕐 Aaj kya date hai?",
-                "⏰ Alarm laga do 7 baje",
-                "💬 Maa ko WhatsApp bhejo",
-                "📋 Meri tasks dikhao"
+                "⏰ Alarm laga do 6:03 AM baje",
+                "💬 Papa ko WhatsApp bhejo",
+                "📞 Last call kiski thi?",
+                "📁 Documents folder search karo",
+                "🕐 Aaj kya date hai?"
             ).forEach { suggestion ->
                 Text(
                     suggestion,
-                    color = CyanAccent.copy(alpha = 0.8f),
+                    color = CyanAccent.copy(alpha = 0.85f),
                     fontSize = 12.sp,
                     modifier = Modifier.padding(vertical = 2.dp)
                 )
@@ -563,8 +578,6 @@ private fun MessageBubble(message: Message) {
     }
 }
 
-// ── Streaming / Thinking bubbles ──────────────────────────────────────────────
-
 @Composable
 private fun StreamingBubble(text: String) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
@@ -602,7 +615,7 @@ private fun ThinkingBubble() {
         animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Restart),
         label = "dotVal"
     )
-    val dotsStr = ".".repeat((dot.toInt() % 3) + 1) + "  ".substring(0, 2 - (dot.toInt() % 3))
+    val dotsStr = ".".repeat((dot.toInt() % 3) + 1)
 
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
         Box(
@@ -648,7 +661,6 @@ private fun InputBar(
                 .padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.Bottom
         ) {
-            // Mic button
             val micIcon = when (voiceState) {
                 VoiceState.LISTENING -> Icons.Default.MicOff
                 VoiceState.SPEAKING  -> Icons.Default.StopCircle
@@ -683,7 +695,6 @@ private fun InputBar(
 
             Spacer(Modifier.width(4.dp))
 
-            // Text field
             OutlinedTextField(
                 value = inputText,
                 onValueChange = onInputChange,
@@ -715,7 +726,6 @@ private fun InputBar(
 
             Spacer(Modifier.width(4.dp))
 
-            // Send button
             val canSend = inputText.isNotBlank() && !isLoading
             IconButton(
                 onClick = onSend,

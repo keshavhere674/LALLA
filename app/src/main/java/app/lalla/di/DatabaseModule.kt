@@ -28,7 +28,8 @@ object DatabaseModule {
             LallaDatabase::class.java,
             "lalla_database.db"
         )
-            .addMigrations(LallaDatabase.MIGRATION_1_2)
+            .addMigrations(LallaDatabase.MIGRATION_1_2, LallaDatabase.MIGRATION_2_3)
+            .fallbackToDestructiveMigrationOnDowngrade()
             .build()
     }
 

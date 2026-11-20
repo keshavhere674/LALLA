@@ -2,10 +2,12 @@ package app.lalla.ui.chat
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.lalla.data.settings.AppSettings
 import app.lalla.data.speech.AndroidTextToSpeech
 import app.lalla.domain.model.Conversation
 import app.lalla.domain.model.Message
@@ -13,6 +15,7 @@ import app.lalla.domain.repository.ConversationRepository
 import app.lalla.domain.usecase.chat.LoadConversationUseCase
 import app.lalla.domain.usecase.chat.SendMessageResult
 import app.lalla.domain.usecase.chat.SendMessageUseCase
+import app.lalla.service.LallaWakeWordService
 import app.lalla.ui.speech.SpeechRecognizer
 import app.lalla.ui.speech.SttResult
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -39,7 +42,8 @@ data class ChatUiState(
     val voiceState: VoiceState = VoiceState.IDLE,
     val connectionStatus: ConnectionStatus = ConnectionStatus.UNKNOWN,
     val voiceInputText: String = "",
-    val isTtsEnabled: Boolean = true
+    val isTtsEnabled: Boolean = true,
+    val isBackgroundListeningEnabled: Boolean = false
 )
 
 @HiltViewModel
@@ -49,13 +53,13 @@ class ChatViewModel @Inject constructor(
     private val sendMessageUseCase: SendMessageUseCase,
     private val conversationRepository: ConversationRepository,
     private val speechRecognizer: SpeechRecognizer,
-    private val tts: AndroidTextToSpeech
+    private val tts: AndroidTextToSpeech,
+    private val appSettings: AppSettings
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
-    /** All conversations for the sidebar drawer */
     val allConversations: StateFlow<List<Conversation>> = conversationRepository
         .getAllConversations()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -65,11 +69,19 @@ class ChatViewModel @Inject constructor(
     private var observeMessagesJob: Job? = null
 
     init {
+        // Observe master background listening preference
+        viewModelScope.launch {
+            appSettings.isBackgroundListeningEnabled.collect { enabled ->
+                _uiState.update { it.copy(isBackgroundListeningEnabled = enabled) }
+            }
+        }
+
         viewModelScope.launch {
             val convId = loadConversationUseCase.getOrCreateDefaultConversation()
             _uiState.update { it.copy(currentConversationId = convId) }
             observeConversation(convId)
         }
+
         // Observe TTS state
         viewModelScope.launch {
             tts.state.collect { ttsState ->
@@ -89,6 +101,33 @@ class ChatViewModel @Inject constructor(
             loadConversationUseCase(conversationId).collect { msgList ->
                 _uiState.update { it.copy(messages = msgList) }
             }
+        }
+    }
+
+    // ── Master Background Listening Control ──────────────────────────────────
+
+    fun toggleBackgroundListening() {
+        val newEnabled = !_uiState.value.isBackgroundListeningEnabled
+        appSettings.setBackgroundListeningEnabled(newEnabled)
+
+        if (newEnabled) {
+            // Verify permission
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED) {
+                try {
+                    val intent = Intent(context, LallaWakeWordService::class.java).apply {
+                        action = LallaWakeWordService.ACTION_START
+                    }
+                    context.startForegroundService(intent)
+                } catch (_: Exception) {}
+            }
+        } else {
+            try {
+                val intent = Intent(context, LallaWakeWordService::class.java).apply {
+                    action = LallaWakeWordService.ACTION_STOP
+                }
+                context.startService(intent)
+            } catch (_: Exception) {}
         }
     }
 
@@ -176,7 +215,7 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    // ── Voice ─────────────────────────────────────────────────────────────────
+    // ── In-App Voice Input ───────────────────────────────────────────────────
 
     fun startVoiceInput() {
         if (_uiState.value.isLoading) return
@@ -199,7 +238,18 @@ class ChatViewModel @Inject constructor(
                         if (result.text.isNotBlank()) sendMessage(result.text)
                     }
                     is SttResult.Error -> {
-                        _uiState.update { it.copy(voiceState = VoiceState.IDLE, error = result.message, voiceInputText = "") }
+                        // Suppress routine silence timeouts from showing red error banners
+                        val isTransientTimeout = result.message.contains("timed out", ignoreCase = true) ||
+                                result.message.contains("No speech detected", ignoreCase = true) ||
+                                result.message.contains("busy", ignoreCase = true)
+
+                        _uiState.update {
+                            it.copy(
+                                voiceState = VoiceState.IDLE,
+                                error = if (isTransientTimeout) null else result.message,
+                                voiceInputText = ""
+                            )
+                        }
                     }
                 }
             }

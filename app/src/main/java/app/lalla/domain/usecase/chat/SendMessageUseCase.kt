@@ -3,28 +3,21 @@ package app.lalla.domain.usecase.chat
 import android.content.Context
 import app.lalla.data.actions.ActionParser
 import app.lalla.data.actions.ActionType
-import app.lalla.data.actions.AlarmScheduler
-import app.lalla.data.actions.WhatsAppSender
 import app.lalla.data.ai.prompt.SystemPromptBuilder
 import app.lalla.data.datetime.DateTimeHelper
+import app.lalla.data.tasks.TaskExecutionEngine
 import app.lalla.domain.model.AiPrompt
-import app.lalla.domain.model.LallaTask
 import app.lalla.domain.model.Memory
 import app.lalla.domain.model.MemorySource
 import app.lalla.domain.model.Message
 import app.lalla.domain.model.MessageRole
-import app.lalla.domain.model.TaskType
 import app.lalla.domain.repository.AiRepository
 import app.lalla.domain.repository.ConversationRepository
 import app.lalla.domain.repository.MemoryRepository
-import app.lalla.domain.repository.TaskRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import javax.inject.Inject
 
 sealed class SendMessageResult {
@@ -38,13 +31,13 @@ class SendMessageUseCase @Inject constructor(
     private val conversationRepository: ConversationRepository,
     private val memoryRepository: MemoryRepository,
     private val aiRepository: AiRepository,
-    private val taskRepository: TaskRepository
+    private val taskExecutionEngine: TaskExecutionEngine
 ) {
     operator fun invoke(conversationId: Long, userText: String): Flow<SendMessageResult> = flow {
         val trimmedInput = userText.trim()
         if (trimmedInput.isBlank()) return@flow
 
-        // 1. Save user message
+        // 1. Save user message to database
         val userMessage = Message(
             conversationId = conversationId,
             role = MessageRole.USER,
@@ -52,7 +45,7 @@ class SendMessageUseCase @Inject constructor(
         )
         val savedUserMsgId = conversationRepository.saveMessage(userMessage)
 
-        // 2. Deterministic date/time short-circuit
+        // 2. Deterministic short-circuit for date/time/day questions
         val deterministicResponse = DateTimeHelper.tryResolveDateOrTime(trimmedInput)
         if (deterministicResponse != null) {
             conversationRepository.saveMessage(
@@ -63,67 +56,21 @@ class SendMessageUseCase @Inject constructor(
             return@flow
         }
 
-        // 3. Action detection — alarm, reminder, WhatsApp
+        // 3. Central Deterministic Task Engine (Alarms, WhatsApp, Gmail, Files, Call History)
         val parsedAction = ActionParser.parse(trimmedInput)
         if (parsedAction != null && parsedAction.type != ActionType.NONE) {
-            val taskId = taskRepository.saveTask(
-                LallaTask(
-                    description = trimmedInput,
-                    type = when (parsedAction.type) {
-                        ActionType.ALARM     -> TaskType.ALARM
-                        ActionType.REMINDER  -> TaskType.REMINDER
-                        ActionType.WHATSAPP  -> TaskType.WHATSAPP
-                        else                 -> TaskType.GENERIC
-                    },
-                    targetContact = parsedAction.targetContact,
-                    targetMessage = parsedAction.targetMessage,
-                    triggerTimeMs = parsedAction.triggerTimeMs,
-                    conversationId = conversationId
-                )
-            )
-
-            val ackText = when (parsedAction.type) {
-                ActionType.ALARM -> {
-                    val timeStr = parsedAction.triggerTimeMs?.let {
-                        SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date(it))
-                    } ?: "requested time"
-                    parsedAction.triggerTimeMs?.let { ms ->
-                        AlarmScheduler.setAlarm(context, ms, trimmedInput, taskId)
-                        val (h, m) = AlarmScheduler.hourMinuteFromMs(ms)
-                        AlarmScheduler.openSystemAlarm(context, h, m, trimmedInput)
-                    }
-                    "✅ Alarm set for **$timeStr**! The system clock app will confirm it."
-                }
-                ActionType.REMINDER -> {
-                    val timeStr = parsedAction.triggerTimeMs?.let {
-                        SimpleDateFormat("hh:mm a, dd MMM", Locale.getDefault()).format(Date(it))
-                    } ?: "the requested time"
-                    parsedAction.triggerTimeMs?.let { ms ->
-                        AlarmScheduler.setAlarm(context, ms, trimmedInput, taskId)
-                    }
-                    "✅ Reminder set for **$timeStr**! I'll notify you then."
-                }
-                ActionType.WHATSAPP -> {
-                    if (WhatsAppSender.isInstalled(context)) {
-                        WhatsAppSender.send(context, parsedAction.targetContact, parsedAction.targetMessage)
-                        val to = parsedAction.targetContact?.let { " to **$it**" } ?: ""
-                        "✅ Opening WhatsApp$to with your message. Please confirm and send!"
-                    } else {
-                        "⚠️ WhatsApp is not installed on this phone."
-                    }
-                }
-                else -> "✅ Task saved!"
-            }
+            val taskResult = taskExecutionEngine.executeAction(parsedAction, conversationId)
+            val feedback = taskResult.spokenFeedback
 
             conversationRepository.saveMessage(
-                Message(conversationId = conversationId, role = MessageRole.ASSISTANT, content = ackText)
+                Message(conversationId = conversationId, role = MessageRole.ASSISTANT, content = feedback)
             )
-            emit(SendMessageResult.Token(ackText))
-            emit(SendMessageResult.Complete(fullResponse = ackText, cleanedText = ackText))
+            emit(SendMessageResult.Token(feedback))
+            emit(SendMessageResult.Complete(fullResponse = feedback, cleanedText = feedback))
             return@flow
         }
 
-        // 4. Regular AI query — fetch recent history + memories
+        // 4. Regular AI conversation
         val history = conversationRepository.getRecentMessages(conversationId, limit = 6)
             .filter { it.id != savedUserMsgId }
         val memories = memoryRepository.getAllMemoriesSnapshot()
@@ -149,7 +96,7 @@ class SendMessageUseCase @Inject constructor(
 
         val rawFullResponse = fullResponseBuilder.toString()
 
-        // 6. Parse [MEMORY] tags
+        // 6. Parse [MEMORY] tags if present
         val lines = rawFullResponse.lines()
         val cleanedLines = mutableListOf<String>()
         for (line in lines) {

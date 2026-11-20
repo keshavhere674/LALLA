@@ -1,5 +1,10 @@
 package app.lalla.ui.settings
 
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
@@ -10,7 +15,10 @@ import app.lalla.data.ai.local.ModelInfo
 import app.lalla.data.ai.local.ModelManager
 import app.lalla.data.ai.local.ModelStatus
 import app.lalla.data.ai.ollama.OllamaEngine
+import app.lalla.data.settings.AppSettings
+import app.lalla.service.LallaWakeWordService
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,6 +39,8 @@ data class SettingsUiState(
     val temperature: Float = 0.7f,
     val isSaved: Boolean = false,
     val connectionStatus: SettingsConnectionStatus = SettingsConnectionStatus.UNKNOWN,
+    val isBackgroundListeningEnabled: Boolean = false,
+    val wakeWordSensitivity: Float = AppSettings.DEFAULT_SENSITIVITY,
     val modelInfo: ModelInfo = ModelInfo(
         fileName = ModelManager.DEFAULT_MODEL_NAME,
         filePath = "",
@@ -41,8 +51,10 @@ data class SettingsUiState(
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val dataStore: DataStore<Preferences>,
-    private val modelManager: ModelManager
+    private val modelManager: ModelManager,
+    private val appSettings: AppSettings
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -50,6 +62,19 @@ class SettingsViewModel @Inject constructor(
 
     init {
         refreshModelInfo()
+
+        viewModelScope.launch {
+            appSettings.isBackgroundListeningEnabled.collect { enabled ->
+                _uiState.update { it.copy(isBackgroundListeningEnabled = enabled) }
+            }
+        }
+
+        viewModelScope.launch {
+            appSettings.wakeWordSensitivity.collect { sensitivity ->
+                _uiState.update { it.copy(wakeWordSensitivity = sensitivity) }
+            }
+        }
+
         viewModelScope.launch {
             dataStore.data.collect { prefs ->
                 _uiState.update {
@@ -65,6 +90,34 @@ class SettingsViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    fun toggleBackgroundListening() {
+        val newEnabled = !_uiState.value.isBackgroundListeningEnabled
+        appSettings.setBackgroundListeningEnabled(newEnabled)
+
+        if (newEnabled) {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED) {
+                try {
+                    val intent = Intent(context, LallaWakeWordService::class.java).apply {
+                        action = LallaWakeWordService.ACTION_START
+                    }
+                    context.startForegroundService(intent)
+                } catch (_: Exception) {}
+            }
+        } else {
+            try {
+                val intent = Intent(context, LallaWakeWordService::class.java).apply {
+                    action = LallaWakeWordService.ACTION_STOP
+                }
+                context.startService(intent)
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun updateWakeWordSensitivity(sensitivity: Float) {
+        appSettings.setWakeWordSensitivity(sensitivity)
     }
 
     fun refreshModelInfo() {

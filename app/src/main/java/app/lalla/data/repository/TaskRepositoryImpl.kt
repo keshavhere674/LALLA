@@ -26,10 +26,24 @@ class TaskRepositoryImpl @Inject constructor(
 
     override suspend fun markComplete(id: Long) = taskDao.markComplete(id)
 
+    override suspend fun updateExecutionResult(
+        id: Long,
+        isCompleted: Boolean,
+        method: String?,
+        status: String?,
+        reason: String?,
+        timeMs: Long?
+    ) {
+        taskDao.updateExecutionResult(id, isCompleted, method, status, reason, timeMs)
+    }
+
     override suspend fun deleteTask(id: Long) = taskDao.delete(id)
 
     override suspend fun getOverdueTasks(): List<LallaTask> =
         taskDao.getOverdueTasks(System.currentTimeMillis()).map { it.toDomain() }
+
+    override suspend fun getTaskById(id: Long): LallaTask? =
+        taskDao.getById(id)?.toDomain()
 }
 
 private fun TaskEntity.toDomain() = LallaTask(
@@ -40,6 +54,10 @@ private fun TaskEntity.toDomain() = LallaTask(
     targetMessage = targetMessage,
     triggerTimeMs = triggerTimeMs,
     isCompleted = isCompleted,
+    executionMethod = executionMethod,
+    resultStatus = resultStatus,
+    failureReason = failureReason,
+    executedAtMs = executedAtMs,
     createdAt = createdAt,
     conversationId = conversationId
 )
@@ -52,6 +70,10 @@ private fun LallaTask.toEntity() = TaskEntity(
     targetMessage = targetMessage,
     triggerTimeMs = triggerTimeMs,
     isCompleted = isCompleted,
+    executionMethod = executionMethod,
+    resultStatus = resultStatus,
+    failureReason = failureReason,
+    executedAtMs = executedAtMs,
     createdAt = createdAt,
     conversationId = conversationId
 )
