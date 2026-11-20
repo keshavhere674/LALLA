@@ -34,13 +34,22 @@ class LocalLlamaEngine @Inject constructor(
     private val mutex = Mutex()
     private var activeModel: LlamaModel? = null
     private var loadedModelPath: String? = null
+    var selectedModelName: String = ModelManager.DEFAULT_MODEL_NAME
+        private set
+
+    fun switchModel(modelName: String) {
+        if (selectedModelName != modelName) {
+            selectedModelName = modelName
+            release()
+        }
+    }
 
     /**
-     * Ensures the local model is loaded into native memory.
+     * Ensures the specified local model is loaded into native memory.
      */
-    private suspend fun ensureModelLoaded(): LlamaModel = withContext(Dispatchers.Default) {
-        val modelFile = modelManager.getModelFile()
-            ?: throw IllegalStateException("On-device model file not found in storage. Place '${ModelManager.DEFAULT_MODEL_NAME}' in app storage.")
+    suspend fun ensureModelLoaded(modelName: String = selectedModelName): LlamaModel = withContext(Dispatchers.Default) {
+        val modelFile = modelManager.getModelFile(modelName)
+            ?: throw IllegalStateException("On-device model file not found in storage: '$modelName'.")
 
         if (activeModel != null && loadedModelPath == modelFile.absolutePath) {
             return@withContext activeModel!!
@@ -114,6 +123,20 @@ class LocalLlamaEngine @Inject constructor(
         val fullPrompt = buildChatPrompt(prompt)
         val result: LlamaResult = mutex.withLock {
             val model = ensureModelLoaded()
+            Llama.complete(
+                model = model,
+                prompt = fullPrompt,
+                systemPrompt = prompt.systemInstruction,
+                maxTokens = 150
+            )
+        }
+        AiResponse(text = result.text.trim())
+    }
+
+    suspend fun chatWithModel(prompt: AiPrompt, modelName: String): AiResponse = withContext(Dispatchers.Default) {
+        val fullPrompt = buildChatPrompt(prompt)
+        val result: LlamaResult = mutex.withLock {
+            val model = ensureModelLoaded(modelName)
             Llama.complete(
                 model = model,
                 prompt = fullPrompt,

@@ -62,21 +62,38 @@ class AndroidTextToSpeech @Inject constructor(
     private fun setLanguageForLocale(locale: Locale) {
         val result = tts?.setLanguage(locale)
         if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-            // Fallback to English
-            tts?.setLanguage(Locale.US)
+            // Fallback to en_IN or US
+            val fallback = tts?.setLanguage(Locale("en", "IN"))
+            if (fallback == TextToSpeech.LANG_MISSING_DATA || fallback == TextToSpeech.LANG_NOT_SUPPORTED) {
+                tts?.setLanguage(Locale.US)
+            }
+        }
+
+        // Try to prefer an offline, high-quality voice for this locale
+        try {
+            val matchingVoices = tts?.voices?.filter { voice ->
+                voice.locale.language == locale.language &&
+                (locale.country.isEmpty() || voice.locale.country == locale.country) &&
+                !voice.isNetworkConnectionRequired
+            }
+            matchingVoices?.firstOrNull()?.let { offlineVoice ->
+                tts?.voice = offlineVoice
+            }
+        } catch (_: Exception) {
+            // Voice selection is optional; locale is already set
         }
     }
 
     override fun speak(text: String) {
         if (!isReady) return
-        val cleanText = stripMarkdown(text)
+        val isHindi = TextNormalizer.hasDevanagari(text)
+        val cleanText = TextNormalizer.normalizeForSpeech(text, isHindi)
         if (cleanText.isBlank()) return
 
-        // Auto-detect language from content
-        val locale = detectLocale(cleanText)
+        val locale = TextNormalizer.selectLocale(cleanText)
         setLanguageForLocale(locale)
 
-        tts?.setSpeechRate(0.9f)
+        tts?.setSpeechRate(1.0f)
         tts?.setPitch(1.0f)
 
         val utteranceId = UUID.randomUUID().toString()
@@ -93,23 +110,5 @@ class AndroidTextToSpeech @Inject constructor(
         tts?.shutdown()
         tts = null
         isReady = false
-    }
-
-    /** Rough heuristic: check if text contains Devanagari script → use Hindi locale */
-    private fun detectLocale(text: String): Locale {
-        val hasDevanagari = text.any { it.code in 0x0900..0x097F }
-        return if (hasDevanagari) Locale("hi", "IN") else Locale.US
-    }
-
-    /** Strip basic markdown so TTS doesn't read asterisks and hashtags */
-    private fun stripMarkdown(text: String): String {
-        return text
-            .replace(Regex("#+\\s*"), "")          // headings
-            .replace(Regex("\\*+([^*]+)\\*+"), "$1") // bold/italic
-            .replace(Regex("`([^`]*)`"), "$1")       // inline code
-            .replace(Regex("\\[([^]]+)]\\([^)]+\\)"), "$1") // links
-            .replace(Regex("^[-*>] ", RegexOption.MULTILINE), "") // bullets/blockquotes
-            .replace(Regex("\\n{3,}"), "\n\n")
-            .trim()
     }
 }

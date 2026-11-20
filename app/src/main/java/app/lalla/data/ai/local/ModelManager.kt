@@ -31,7 +31,18 @@ class ModelManager @Inject constructor(
 
     companion object {
         const val DEFAULT_MODEL_NAME = "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+        const val MODEL_1_5B_NAME = "qwen2.5-1.5b-instruct-q4_k_m.gguf"
         private const val GGUF_MAGIC = "GGUF"
+    }
+
+    /**
+     * Lists all validated GGUF model files present in the app's models directory.
+     */
+    fun listAvailableModels(): List<File> {
+        val dir = getModelsDirectory()
+        return dir.listFiles { file ->
+            file.isFile && file.name.endsWith(".gguf") && validateGguf(file)
+        }?.toList() ?: emptyList()
     }
 
     /**
